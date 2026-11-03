@@ -43,12 +43,12 @@ const LABELS = {
         saved: '✓ Mentve!',
         /* sounds */
         soundTitle: 'Hangbeállítások',
-        soundMaster: 'Alap hangok',
-        soundMasterDesc: 'Gombkattintások, dobás visszajelzők',
+        soundMaster: 'Bemondó',
+        soundMasterDesc: 'Pontok és edzés-visszajelzések felolvasása',
         sound180: '180! Bekiabálás',
         sound180Desc: 'Bemondó a maximális dobásnál',
-        soundWin: 'Győzelem hangeffekt',
-        soundWinDesc: 'Hang a kiszálló megdobásakor',
+        soundWin: 'Kiszálló bemondása',
+        soundWinDesc: 'Felolvasás a leg megnyerésekor',
         /* data */
         dataTitle: 'Adatmentés & Visszaállítás',
         exportTitle: 'Helyi adatok mentése (Export)',
@@ -94,12 +94,12 @@ const LABELS = {
         saveBtn: 'Save settings',
         saved: '✓ Saved!',
         soundTitle: 'Sound settings',
-        soundMaster: 'Master sounds',
-        soundMasterDesc: 'Button clicks, throw feedback',
+        soundMaster: 'Voice caller',
+        soundMasterDesc: 'Spoken scores and practice feedback',
         sound180: '180! Caller',
         sound180Desc: 'Voice caller for maximum score',
-        soundWin: 'Win sound effect',
-        soundWinDesc: 'Sound on checkout',
+        soundWin: 'Checkout call',
+        soundWinDesc: 'Spoken announcement when a leg is won',
         dataTitle: 'Backup & Restore',
         exportTitle: 'Export local data',
         exportDesc: 'Download data stored in this browser. Cloud profile data is not included.',
@@ -206,6 +206,11 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
 
     const saveAll = async () => {
         if (typeof window === 'undefined') return;
+        const fastArr = fastBtns.split(',').map(s => Number(s.trim()));
+        if (fastArr.length !== 3 || !fastArr.every(n => Number.isInteger(n) && n >= 0 && n <= 180)) {
+            alert(lang === 'hu' ? 'Adj meg pontosan három egész számot 0 és 180 között.' : 'Enter exactly three whole numbers between 0 and 180.');
+            return;
+        }
         // localStorage
         localStorage.setItem('dartisan_checkout',    checkout);
         localStorage.setItem('dartisan_pref_input',  inputMode);
@@ -215,7 +220,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
         localStorage.setItem('dartisan_sound_180',   String(sound180));
         localStorage.setItem('dartisan_sound_legwin',String(soundWin));
         localStorage.setItem('dartisan_fav_double',  favDouble);
-        const fastArr = fastBtns.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+        localStorage.setItem('dartisan_quick_buttons', JSON.stringify(fastArr));
 
         // Firestore
         const user = auth.currentUser;

@@ -29,7 +29,7 @@ export type PlayerData = {
 };
 
 const triggerHaptic = (type: 'hit' | 'miss' | 'bust' | 'checkout' | 'tap') => {
-    if (typeof window !== 'undefined' && navigator.vibrate) {
+    if (typeof window !== 'undefined' && localStorage.getItem('dartisan_haptic') !== 'false' && navigator.vibrate) {
         switch(type) {
             case 'tap': navigator.vibrate(20); break;
             case 'hit': navigator.vibrate(40); break;
@@ -391,16 +391,29 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [isVerified, setIsVerified] = useState(true); 
   
   const [celebration, setCelebration] = useState<{type: 'checkout', main: string, sub: string, color: string} | null>(null);
-  const [inputMode, setInputMode] = useState<'detailed' | 'fast' | 'board'>(config.gameMode === 'career' || config.tournamentId ? 'detailed' : 'fast');
+  const [inputMode, setInputMode] = useState<'detailed' | 'fast' | 'board'>(() => {
+    if (config.gameMode === 'career' || config.tournamentId) return 'detailed';
+    const savedMode = typeof window !== 'undefined' && localStorage.getItem('dartisan_pref_input');
+    return savedMode === 'detailed' || savedMode === 'board' ? savedMode : 'fast';
+  });
   const [input, setInput] = useState('');
   const [pendingCheckout, setPendingCheckout] = useState<number | null>(null);
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
   const [currentDarts, setCurrentDarts] = useState<Dart[]>(config.resumeState ? config.resumeState.currentDarts || [] : []);
   const [activeMult, setActiveMult] = useState<1 | 2 | 3>(1);
-  const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>('safe');
+  const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>(() =>
+    typeof window !== 'undefined' && localStorage.getItem('dartisan_strategy') === 'pro' ? 'pro' : 'safe'
+  );
   
-  const [quickButtons, setQuickButtons] = useState<number[]>([60, 100, 140]);
+  const [quickButtons, setQuickButtons] = useState<number[]>(() => {
+      if (typeof window === 'undefined') return [60, 100, 140];
+      try {
+          const saved = JSON.parse(localStorage.getItem('dartisan_quick_buttons') || 'null');
+          if (Array.isArray(saved) && saved.length === 3 && saved.every(n => Number.isInteger(n) && n >= 0 && n <= 180)) return saved;
+      } catch { /* Ignore malformed browser storage. */ }
+      return [60, 100, 140];
+  });
   const [favoriteDouble, setFavoriteDouble] = useState<string>("D16");
 
   useEffect(() => {
@@ -775,8 +788,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       catch (error) { setAsyncState('playing'); console.error("Hiba a leg feltöltésekor:", error); }
   };
 
-  const announceScore = useCallback((scoreStr: string, is180: boolean = false, isBust: boolean = false) => {
-    if (config.muteCaller || !('speechSynthesis' in window)) return;
+  const announceScore = useCallback((scoreStr: string, is180: boolean = false, isBust: boolean = false, isCheckout: boolean = false) => {
+    if (config.muteCaller || localStorage.getItem('dartisan_sound_master') === 'false' || !('speechSynthesis' in window)) return;
+    if (is180 && localStorage.getItem('dartisan_sound_180') === 'false') return;
+    if (isCheckout && localStorage.getItem('dartisan_sound_legwin') === 'false') return;
     window.speechSynthesis.cancel(); 
     const u = new SpeechSynthesisUtterance(); 
     u.lang = lang === 'hu' ? 'hu-HU' : 'en-GB';
@@ -844,7 +859,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   const handleWin = useCallback((playerIndex: number, checkoutValue: number, winningDartsInRound: number) => {
     const pColor = players[playerIndex].color; 
-    announceScore(txt.checkoutMsg(checkoutValue));
+    announceScore(txt.checkoutMsg(checkoutValue), false, false, true);
     const willWinLeg = players[playerIndex].legsWon + 1 >= config.legsToWin;
     const willWinSet = willWinLeg && (players[playerIndex].setsWon + 1 >= config.setsToWin);
     
@@ -934,7 +949,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             setC121DartsLeft(prev => prev - 1);
 
             if (isOut) {
-                announceScore(txt.checkoutMsg(validPts)); 
+                announceScore(txt.checkoutMsg(validPts), false, false, true);
                 triggerCelebration('checkout', `${validPts}`, 'Siker!', activeP.color);
                 if (c121Target > c121Record) { setC121Record(c121Target); localStorage.setItem('dartisan_121_record', c121Target.toString()); }
                 setPracticeStatus('won_121_round');
@@ -996,7 +1011,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     if (isOut && opened) { 
         setCurrentDarts([...currentDarts, { val, mult }]);
         if (isAsync) { 
-            announceScore(txt.checkoutMsg(validPts)); 
+            announceScore(txt.checkoutMsg(validPts), false, false, true);
             triggerHaptic('checkout');
             setPlayers(prev => { 
                 const np = prev.map(pl => ({ ...pl })); 
@@ -1103,7 +1118,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
     if (isOut) { 
         if (isAsync) { 
-            triggerHaptic('checkout'); announceScore(txt.checkoutMsg(pts)); 
+            triggerHaptic('checkout'); announceScore(txt.checkoutMsg(pts), false, false, true);
             setPlayers(prev => { 
                 const np = prev.map(pl => ({ ...pl })); 
                 const pl = np[activePlayer]; 

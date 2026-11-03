@@ -86,13 +86,15 @@ interface SetupScreenProps {
 }
 
 export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
-  const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'leagues'>('x01');
+  const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>('x01');
   const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
   const [score, setScore] = useState(501);
   const [sets, setSets] = useState(1);
   const [legs, setLegs] = useState(3);
   const [checkIn, setCheckIn] = useState<'single' | 'double'>('single');
-  const [checkout, setCheckout] = useState<'single' | 'double'>('double');
+  const [checkout, setCheckout] = useState<'single' | 'double'>(() =>
+    typeof window !== 'undefined' && localStorage.getItem('dartisan_checkout') === 'single' ? 'single' : 'double'
+  );
   const [muteCaller, setMuteCaller] = useState(false);
   const [challengeCode, setChallengeCode] = useState('');
   const [practiceType, setPracticeType] = useState<'around' | 'bobs27' | '121' | 'hunter' | 'math'>('121');
@@ -192,6 +194,20 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
             const docRef = doc(db, 'users', user.uid);
             const docSnap = await getDoc(docRef);
             const userData = docSnap.exists() ? docSnap.data() : null;
+            const savedSettings = userData?.settings;
+            if (savedSettings?.checkout === 'single' || savedSettings?.checkout === 'double') {
+                setCheckout(savedSettings.checkout);
+                localStorage.setItem('dartisan_checkout', savedSettings.checkout);
+            }
+            if (savedSettings?.inputMode === 'fast' || savedSettings?.inputMode === 'detailed' || savedSettings?.inputMode === 'board') {
+                localStorage.setItem('dartisan_pref_input', savedSettings.inputMode);
+            }
+            if (savedSettings?.strategy === 'safe' || savedSettings?.strategy === 'pro') {
+                localStorage.setItem('dartisan_strategy', savedSettings.strategy);
+            }
+            if (Array.isArray(savedSettings?.fastBtns) && savedSettings.fastBtns.length === 3 && savedSettings.fastBtns.every((n: number) => Number.isInteger(n) && n >= 0 && n <= 180)) {
+                localStorage.setItem('dartisan_quick_buttons', JSON.stringify(savedSettings.fastBtns));
+            }
 
             const displayName = user.displayName || user.email?.split('@')[0] || 'Player';
             
@@ -600,7 +616,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
 
       <header className="mb-6 text-center shrink-0 mt-28">
         <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-1 block">DARTISAN</span>
-        <h1 className="text-4xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : (tab === 'practice' ? txt.practice : (tab === 'career' ? txt.career : txt.leagues))}</h1>
+        <h1 className="text-4xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
       </header>
 
       {/* --- QUICK START GOMB --- */}
@@ -634,7 +650,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           
           <div className="flex gap-2">
             <button onClick={() => setTab('career')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'career' ? 'bg-[#b655ff] text-white border-[#b655ff] shadow-[0_0_15px_rgba(182,85,255,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.career}</button>
-            <button onClick={() => setTab('cricket' as any)} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${(tab as string) === 'cricket' ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>Cricket</button>
+            <button onClick={() => setTab('cricket')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'cricket' ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>Cricket</button>
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
             {onOpenCoach && (
                 <button onClick={onOpenCoach} className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border bg-[#12141a] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 shadow-[0_0_10px_rgba(6,182,212,0.15)] flex items-center justify-center">
@@ -888,7 +904,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
             </div>
         )}
 
-        {(tab as string) === 'cricket' && (
+        {tab === 'cricket' && (
             <div className="flex flex-col gap-4 text-center">
                 <div className="bg-[#0b0d11] border border-emerald-500/30 p-6 rounded-3xl text-left shadow-[0_0_20px_rgba(16,185,129,0.05)]">
                     <h3 className="text-2xl font-black text-white italic uppercase mb-2">Cricket</h3>
