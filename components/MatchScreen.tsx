@@ -738,7 +738,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       return () => unsubscribe();
   }, [isAsync, config.challengeCode, role, oppRole, config.legsToWin, config.setsToWin]);
 
-  const resolveAsyncLeg = async (observedState: any) => {
+  async function resolveAsyncLeg(observedState: any) {
       await runTransaction(db, async transaction => {
           const roomRef = doc(db, 'matches', config.challengeCode!);
           const snapshot = await transaction.get(roomRef);
@@ -767,7 +767,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               'state.winner': matchEnded ? winner : null,
           });
       });
-  };
+  }
 
   const finishAsyncLeg = async (totalDartsUsed: number) => {
       setAsyncState('waiting_leg');
@@ -1582,7 +1582,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                   <ComputerDesktopIcon className="h-8 w-8 sm:h-10 sm:w-10 text-indigo-400 shrink-0 mt-1"/>
                   <div className="flex flex-col">
                       <p className="text-[10px] sm:text-xs font-black text-indigo-300 uppercase tracking-[0.2em] mb-1 sm:mb-2">AI Játékos Értékelés</p>
-                      <p className="text-xs sm:text-sm text-indigo-100 font-bold italic leading-relaxed">"{generateAiFeedback(players[0])}"</p>
+                        <p className="text-xs sm:text-sm text-indigo-100 font-bold italic leading-relaxed">&ldquo;{generateAiFeedback(players[0])}&rdquo;</p>
                   </div>
               </div>
               
