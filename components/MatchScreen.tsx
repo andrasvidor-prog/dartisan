@@ -393,6 +393,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [celebration, setCelebration] = useState<{type: 'checkout', main: string, sub: string, color: string} | null>(null);
   const [inputMode, setInputMode] = useState<'detailed' | 'fast' | 'board'>(config.gameMode === 'career' || config.tournamentId ? 'detailed' : 'fast');
   const [input, setInput] = useState('');
+  const [pendingCheckout, setPendingCheckout] = useState<number | null>(null);
+  const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
+  const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
   const [currentDarts, setCurrentDarts] = useState<Dart[]>(config.resumeState ? config.resumeState.currentDarts || [] : []);
   const [activeMult, setActiveMult] = useState<1 | 2 | 3>(1);
   const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>('safe');
@@ -862,9 +865,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       activeP.currentLegDarts += winningDartsInRound; 
       activeP.totalDarts += winningDartsInRound; 
       activeP.totalPoints += checkoutValue; 
+      activeP.checkoutAttempts = Math.max(activeP.checkoutAttempts, activeP.checkoutSuccess + 1);
       activeP.checkoutSuccess += 1;
-      
-      if (activeP.currentLegDarts <= 9) { activeP.first9Points += checkoutValue; activeP.first9Darts += winningDartsInRound; }
       if (checkoutValue > activeP.highestCheckout) activeP.highestCheckout = checkoutValue;
       if (activeP.bestLegDarts === null || activeP.currentLegDarts < activeP.bestLegDarts) activeP.bestLegDarts = activeP.currentLegDarts;
       
@@ -1003,7 +1005,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
                 pl.legAverages.push(parseFloat(thisLegAvg.toFixed(1)));
-                pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.totalPoints += validPts; pl.score = 0; 
+                pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.totalPoints += validPts; pl.score = 0;
+                pl.checkoutAttempts = Math.max(pl.checkoutAttempts, pl.checkoutSuccess + 1);
+                pl.checkoutSuccess += 1;
+                pl.highestCheckout = Math.max(pl.highestCheckout, validPts);
+                pl.bestLegDarts = pl.bestLegDarts === null ? legDarts : Math.min(pl.bestLegDarts, legDarts);
                 
                 syncTeamState(np, activePlayer);
                 return np; 
@@ -1046,7 +1052,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       setActiveMult(1); 
   };
 
-  const handleFastEnter = useCallback((overridePts?: number) => {
+  const handleFastEnter = useCallback((overridePts?: number, confirmedDarts?: 1 | 2 | 3, doubleConfirmed = false) => {
     if ((input === '' && overridePts === undefined) || isLegWinner || isSetWinner || isMatchWinner || config.gameMode === 'practice' || asyncState !== 'playing') return;
     const pts = overridePts !== undefined ? overridePts : parseInt(input); 
     
@@ -1054,22 +1060,29 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         triggerHaptic('bust'); alert(txt.impossible); setInput(''); return; 
     }
     
-    triggerHaptic('hit'); saveQuickButtonUsage(pts);
     const activeP = players[activePlayer]; 
     const tScore = activeP.score - pts;
     const isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1) : (tScore < 0);
     const isOut = tScore === 0;
-    
-    // A körösszeg önmagában nem árulja el, hány nyíl kellett a kiszállóhoz.
-    const usedDarts = isOut && !activeP.isBot
-        ? Number(window.prompt(lang === 'hu' ? 'Hány nyílból szálltál ki ebben a körben? (1–3)' : 'How many darts did this checkout take? (1–3)', '3'))
-        : 3;
-    if (isOut && (!Number.isInteger(usedDarts) || usedDarts < 1 || usedDarts > 3)) return;
+    if (isOut && !activeP.isBot && confirmedDarts === undefined) {
+        setPendingCheckout(pts);
+        setCheckoutDarts(3);
+        setCheckoutDoubleConfirmed(false);
+        return;
+    }
+    const usedDarts = confirmedDarts ?? 3;
     if (isOut && (pts > usedDarts * 60 || (config.checkout === 'double' && usedDarts === 1 && ![...Array(20)].some((_, i) => (i + 1) * 2 === pts) && pts !== 50))) return;
-    if (isOut && config.checkout === 'double' && !activeP.isBot && !window.confirm(lang === 'hu' ? 'Az utolsó nyíl dupla vagy belső bull volt?' : 'Was the final dart a double or inner bull?')) return;
+    if (isOut && config.checkout === 'double' && !activeP.isBot && !doubleConfirmed) return;
+    triggerHaptic('hit'); saveQuickButtonUsage(pts);
     
     if (!isBust && activeP.currentLegDarts < 9) {
-        setPlayers(prev => { const n = prev.map(pl => ({ ...pl })); n[activePlayer].first9Points += pts; n[activePlayer].first9Darts += usedDarts; return n; });
+        const first9Darts = Math.min(usedDarts, 9 - activeP.currentLegDarts);
+        setPlayers(prev => {
+            const next = prev.map(player => ({ ...player }));
+            next[activePlayer].first9Points += Math.round(pts * first9Darts / usedDarts);
+            next[activePlayer].first9Darts += first9Darts;
+            return next;
+        });
     }
 
     if (isBust) {
@@ -1098,7 +1111,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
                 pl.legAverages.push(parseFloat(thisLegAvg.toFixed(1)));
-                pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.totalPoints += pts; pl.score = 0; 
+                pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.totalPoints += pts; pl.score = 0;
+                pl.checkoutAttempts = Math.max(pl.checkoutAttempts, pl.checkoutSuccess + 1);
+                pl.checkoutSuccess += 1;
+                pl.highestCheckout = Math.max(pl.highestCheckout, pts);
+                pl.bestLegDarts = pl.bestLegDarts === null ? legDarts : Math.min(pl.bestLegDarts, legDarts);
                 
                 syncTeamState(np, activePlayer);
                 return np; 
@@ -1123,7 +1140,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         setActivePlayer(nextPlayerIdx()); 
     }  
     setInput('');
-  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore, lang]);
+  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore]);
 
   useEffect(() => { handleFastEnterRef.current = handleFastEnter; }, [handleFastEnter]);
   useEffect(() => { processDartRef.current = processDart; }, [processDart]);
@@ -1300,6 +1317,14 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const displayPlayers = isAsync ? players : (players.length > 2 ? players : [...players.slice(activePlayer), ...players.slice(0, activePlayer)]);
   const safePlayer = players[activePlayer] || players[0];
   const matchWinnerPlayer = players.reduce((winner, player) => player.setsWon > winner.setsWon ? player : winner, players[0]);
+  const legWinnerPlayer = isAsync
+      ? (fbSyncData?.state?.resolvedLeg?.winner === role ? players[0] : players[1])
+      : safePlayer;
+  const checkoutDartsValid = pendingCheckout === null || (
+      pendingCheckout <= checkoutDarts * 60
+      && (config.checkout !== 'double' || checkoutDarts !== 1
+          || pendingCheckout === 50 || (pendingCheckout >= 2 && pendingCheckout <= 40 && pendingCheckout % 2 === 0))
+  );
   const activeColorTheme = COLOR_STYLES[safePlayer?.color] || COLOR_STYLES['emerald']; 
   const colTxt = activeColorTheme.split(' ')[0] || 'text-emerald-400'; 
   const colBor = activeColorTheme.split(' ')[1] || 'border-emerald-500'; 
@@ -1448,6 +1473,55 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             </div>
         )}
       </div>
+
+      {pendingCheckout !== null && (
+        <div className="fixed inset-0 z-[120] bg-black/85 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={lang === 'hu' ? 'Kiszálló megerősítése' : 'Confirm checkout'}>
+          <div className="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-[#121821] p-5 sm:p-7 shadow-2xl">
+            <h2 className="text-xl sm:text-2xl font-black text-white mb-2">{lang === 'hu' ? 'Kiszálló megerősítése' : 'Confirm checkout'}</h2>
+            <p className="text-slate-300 text-sm mb-5">{lang === 'hu' ? `A ${pendingCheckout} pontos kör hány nyílból sikerült?` : `How many darts did the ${pendingCheckout}-point checkout take?`}</p>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {([1, 2, 3] as const).map(count => (
+                <button key={count} type="button" onClick={() => setCheckoutDarts(count)} aria-pressed={checkoutDarts === count}
+                  className={`h-16 rounded-xl text-xl font-black border ${checkoutDarts === count ? 'bg-emerald-400 text-slate-950 border-emerald-300' : 'bg-slate-800 text-white border-slate-700'}`}>{count}</button>
+              ))}
+            </div>
+            {config.checkout === 'double' && (
+              <button type="button" onClick={() => setCheckoutDoubleConfirmed(value => !value)} aria-pressed={checkoutDoubleConfirmed}
+                className={`w-full min-h-14 rounded-xl border px-4 mb-5 text-sm font-bold text-left ${checkoutDoubleConfirmed ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200' : 'border-slate-600 bg-slate-800 text-slate-200'}`}>
+                {checkoutDoubleConfirmed ? '✓ ' : '○ '}{lang === 'hu' ? 'Az utolsó nyíl dupla vagy belső bull volt' : 'The final dart was a double or inner bull'}
+              </button>
+            )}
+            {!checkoutDartsValid && <p className="text-rose-300 text-sm mb-4">{lang === 'hu' ? 'Ennyi pont nem érhető el a kiválasztott nyílszámmal.' : 'This score is impossible with the selected number of darts.'}</p>}
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setPendingCheckout(null)} className="flex-1 h-14 rounded-xl bg-slate-700 text-white font-bold">{lang === 'hu' ? 'Mégse' : 'Cancel'}</button>
+              <button type="button" disabled={!checkoutDartsValid || (config.checkout === 'double' && !checkoutDoubleConfirmed)}
+                onClick={() => { handleFastEnter(pendingCheckout, checkoutDarts, checkoutDoubleConfirmed); setPendingCheckout(null); }}
+                className="flex-1 h-14 rounded-xl bg-emerald-400 text-slate-950 font-black disabled:opacity-40">{lang === 'hu' ? 'Megerősítés' : 'Confirm'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(isLegWinner || isSetWinner) && !isMatchWinner && asyncState === 'playing' && (
+        <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={isSetWinner ? (lang === 'hu' ? 'Szett vége' : 'Set complete') : (lang === 'hu' ? 'Leg vége' : 'Leg complete')}>
+          <div className="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-[#121821] p-6 sm:p-8 text-center shadow-2xl">
+            <TrophyIcon className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
+            <h2 className="text-3xl font-black text-white mb-2">{isSetWinner ? (lang === 'hu' ? 'Szett vége!' : 'Set complete!') : txt.waitLegTitle}</h2>
+            <p className="text-emerald-300 font-bold mb-6">{legWinnerPlayer?.name} {lang === 'hu' ? 'nyerte ezt a leget.' : 'won this leg.'}</p>
+            <div className="grid grid-cols-2 gap-3 mb-7">
+              {players.slice(0, 2).map(player => (
+                <div key={player.id} className="rounded-xl bg-slate-900 border border-slate-700 p-3">
+                  <div className="text-xs text-slate-400 truncate">{player.name}</div>
+                  <div className="font-black text-white">S:{player.setsWon} L:{player.legsWon}</div>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={handleNextLegOrSet} className="w-full h-14 rounded-xl bg-emerald-400 text-slate-950 font-black uppercase">
+              {lang === 'hu' ? 'Következő leg' : 'Next leg'}
+            </button>
+          </div>
+        </div>
+      )}
       
       {isMatchWinner && config.gameMode !== 'practice' && asyncState === 'playing' && (
         <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex flex-col items-center pt-12 px-4 pb-24 overflow-y-auto">
