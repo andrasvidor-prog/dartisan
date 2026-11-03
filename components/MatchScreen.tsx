@@ -392,6 +392,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   
   const [celebration, setCelebration] = useState<{type: 'checkout', main: string, sub: string, color: string} | null>(null);
   const [inputMode, setInputMode] = useState<'detailed' | 'fast' | 'board'>(() => {
+    const resumedMode = config.resumeState?.inputMode;
+    if (resumedMode === 'detailed' || resumedMode === 'fast' || resumedMode === 'board') return resumedMode;
     if (config.gameMode === 'career' || config.tournamentId) return 'detailed';
     const savedMode = typeof window !== 'undefined' && localStorage.getItem('dartisan_pref_input');
     return savedMode === 'detailed' || savedMode === 'board' ? savedMode : 'fast';
@@ -402,9 +404,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
   const [currentDarts, setCurrentDarts] = useState<Dart[]>(config.resumeState ? config.resumeState.currentDarts || [] : []);
   const [activeMult, setActiveMult] = useState<1 | 2 | 3>(1);
-  const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>(() =>
-    typeof window !== 'undefined' && localStorage.getItem('dartisan_strategy') === 'pro' ? 'pro' : 'safe'
-  );
+  const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>(() => {
+    const resumedStrategy = config.resumeState?.checkoutStrategy;
+    if (resumedStrategy === 'safe' || resumedStrategy === 'pro') return resumedStrategy;
+    return typeof window !== 'undefined' && localStorage.getItem('dartisan_strategy') === 'pro' ? 'pro' : 'safe';
+  });
   
   const [quickButtons, setQuickButtons] = useState<number[]>(() => {
       if (typeof window === 'undefined') return [60, 100, 140];
@@ -642,9 +646,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   useEffect(() => {
     if (!isAsync) {
         if (isMatchWinner || config.gameMode === 'practice') localStorage.removeItem('dartisan_save');
-        else localStorage.setItem('dartisan_save', JSON.stringify({ players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, config, currentDarts }));
+        else localStorage.setItem('dartisan_save', JSON.stringify({
+            players, activePlayer, isLegWinner, isSetWinner, isMatchWinner,
+            config: { ...config, resumeState: undefined }, currentDarts,
+            inputMode, checkoutStrategy,
+        }));
     }
-  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync]);
+  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, inputMode, checkoutStrategy]);
 
   useEffect(() => {
       if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
