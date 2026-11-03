@@ -970,7 +970,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     }
 
     let tScore = activeP.score; 
-    let opened = activeP.score < (activeP.customStartingScore ?? config.startingScore); 
+    let opened = config.checkIn !== 'double' || activeP.score < (activeP.customStartingScore ?? config.startingScore);
     let validPts = 0;
     const isFirst9 = (activeP.currentLegDarts + currentDarts.length) < 9;
     
