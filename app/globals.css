@@ -26,3 +26,19 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ── Theme overrides ─────────────────────────────────────────────────────── */
+body.theme-amoled {
+  filter: brightness(0.82);
+}
+body.theme-amoled * {
+  --tw-bg-opacity: 1;
+}
+
+body.theme-contrast {
+  filter: contrast(1.25) brightness(1.05);
+}
+
+body.theme-dim {
+  filter: brightness(1.22);
+}
+

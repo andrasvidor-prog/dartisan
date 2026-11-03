@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 import { 
     XMarkIcon, PlusIcon, ComputerDesktopIcon, UserIcon, UserCircleIcon, 
     SpeakerWaveIcon, SpeakerXMarkIcon, PaperAirplaneIcon, 
@@ -12,7 +12,7 @@ import {
 import type { Language } from '@/app/page';
 
 import { db, auth, googleProvider, appleProvider } from '../firebase'; 
-import { doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, orderBy, limit, getDocs, runTransaction, serverTimestamp } from 'firebase/firestore';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
 export type PlayerConfig = { 
@@ -24,7 +24,7 @@ export type PlayerConfig = {
     teamId?: number; 
 };
 export type MatchConfig = { 
-    gameMode: 'x01' | 'challenge' | 'practice' | 'career'; 
+    gameMode: 'x01' | 'challenge' | 'practice' | 'career' | 'cricket';
     practiceType?: 'around' | 'bobs27' | '121' | 'hunter' | 'math'; 
     players: PlayerConfig[]; 
     startingScore: number; 
@@ -163,6 +163,18 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
 
+  useEffect(() => {
+    if (!isSignInWithEmailLink(auth, window.location.href)) return;
+    const email = localStorage.getItem('dartisan_email_link') || window.prompt(lang === 'hu' ? 'Melyik e-mail címre kaptad a belépési linket?' : 'Which email address received the sign-in link?');
+    if (!email) return;
+    signInWithEmailLink(auth, email, window.location.href)
+      .then(() => {
+        localStorage.removeItem('dartisan_email_link');
+        window.history.replaceState({}, '', window.location.pathname);
+      })
+      .catch((error) => { console.error('Email link sign-in:', error); alert(lang === 'hu' ? 'A belépési link érvénytelen vagy lejárt.' : 'The sign-in link is invalid or expired.'); });
+  }, [lang]);
+
   const getAvatar = (user: any) => user?.selectedAvatar || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || user?.email?.split('@')[0] || 'Player'}&backgroundColor=0b0d11`;
 
   useEffect(() => {
@@ -218,19 +230,12 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   }, []);
 
   useEffect(() => {
-      if (tab === 'leagues') {
-          const fetchLeaderboard = async () => {
-              try {
-                  const q = query(collection(db, 'users'), orderBy('weeklyXp', 'desc'), limit(50));
-                  const querySnapshot = await getDocs(q);
-                  const usersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                  setLeaderboard(usersData);
-              } catch (error) { 
-                  console.error("Hiba a ranglista lekérdezésekor:", error); 
-              }
-          };
-          fetchLeaderboard();
-      }
+      if (tab !== 'leagues') return;
+      const q = query(collection(db, 'users'), orderBy('weeklyXp', 'desc'), limit(50));
+      const unsub = onSnapshot(q, (snap) => {
+          setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => { console.error("Ranglista hiba:", err); });
+      return () => unsub();
   }, [tab]);
 
   useEffect(() => {
@@ -313,18 +318,47 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   
   const handleLogout = () => { signOut(auth); setShowAuth(false); };
 
+  const handleMagicLink = async () => {
+      if (!emailInput.trim()) return alert(lang === 'hu' ? 'Add meg az e-mail címedet.' : 'Enter your email address.');
+      setIsLoggingIn(true);
+      try {
+          await sendSignInLinkToEmail(auth, emailInput.trim(), { url: window.location.origin, handleCodeInApp: true });
+          localStorage.setItem('dartisan_email_link', emailInput.trim());
+          alert(lang === 'hu' ? 'Elküldtük a belépési linket az e-mail címedre.' : 'We sent a sign-in link to your email.');
+      } catch (error) {
+          console.error('Magic link:', error);
+          alert(lang === 'hu' ? 'Nem sikerült elküldeni a linket. Ellenőrizd, hogy az e-mail link engedélyezve van-e a Firebase-ben.' : 'Could not send the link. Check that email-link sign-in is enabled in Firebase.');
+      } finally { setIsLoggingIn(false); }
+  };
+
+  const handlePasswordReset = async () => {
+      if (!emailInput.trim()) return alert(lang === 'hu' ? 'Add meg az e-mail címedet.' : 'Enter your email address.');
+      setIsLoggingIn(true);
+      try {
+          await sendPasswordResetEmail(auth, emailInput.trim());
+          alert(lang === 'hu' ? 'Ha van ilyen fiók, a jelszó-visszaállító levelet elküldtük.' : 'If this account exists, a password reset email has been sent.');
+      } catch (error) {
+          console.error('Password reset:', error);
+          alert(lang === 'hu' ? 'Nem sikerült elküldeni a jelszó-visszaállító levelet.' : 'Could not send the password reset email.');
+      } finally { setIsLoggingIn(false); }
+  };
+
   const handleHostMatch = async () => {
       setIsCreatingMatch(true); 
-      const code = `DART-${Math.floor(1000 + Math.random() * 9000)}`;
       try { 
-          await setDoc(doc(db, "matches", code), { 
+          const code = `DART-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+          const roomRef = doc(db, 'matches', code);
+          await runTransaction(db, async transaction => {
+            if ((await transaction.get(roomRef)).exists()) throw new Error('Room code collision');
+            transaction.set(roomRef, {
               status: 'waiting', 
               config: { startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout }, 
               state: { currentLeg: 1, currentSet: 1, hostDarts: null, guestDarts: null, hostSetsWon: 0, guestSetsWon: 0, hostLegsWon: 0, guestLegsWon: 0, winner: null }, 
               hostName: players[0].name, 
               guestName: null, 
-              createdAt: new Date() 
-          }); 
+              createdAt: serverTimestamp()
+            });
+          });
           setHostedCode(code); 
       } catch (error) { 
           console.error("Error creating match:", error); 
@@ -333,45 +367,58 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       setIsCreatingMatch(false);
   };
 
+  const handleCancelHost = async () => {
+      if (!hostedCode) return;
+      try {
+          const roomRef = doc(db, 'matches', hostedCode);
+          await runTransaction(db, async transaction => {
+              const snapshot = await transaction.get(roomRef);
+              if (snapshot.exists() && snapshot.data().status === 'waiting') transaction.delete(roomRef);
+          });
+          setHostedCode(null);
+      } catch (error) {
+          console.error('Cancel hosted match:', error);
+          alert(lang === 'hu' ? 'A szoba törlése nem sikerült. Próbáld újra.' : 'Could not delete the room. Please try again.');
+      }
+  };
+
   const handleJoinMatch = async () => {
       if (challengeCode.length < 5) return; 
       setIsJoiningMatch(true);
       try {
-          const matchSnap = await getDoc(doc(db, "matches", challengeCode));
-          if (matchSnap.exists()) {
-              const data = matchSnap.data();
-              if (data.status === 'waiting') {
-                  await updateDoc(doc(db, "matches", challengeCode), { status: 'playing', guestName: players[0].name });
-                  onStart({ 
-                      gameMode: 'challenge', 
-                      challengeCode: challengeCode, 
-                      localRole: 'guest', 
-                      players: [players[0], { name: data.hostName || 'Host', isBot: false, difficulty: 5, color: 'emerald' }], 
-                      startingScore: data.config.startingScore, 
-                      setsToWin: data.config.setsToWin, 
-                      legsToWin: data.config.legsToWin, 
-                      checkIn: data.config.checkIn, 
-                      checkout: data.config.checkout, 
-                      muteCaller 
-                  });
-              } else {
-                  alert(txt.roomFull);
-              }
-          } else {
-              alert("A megadott kód nem létezik!"); 
-          }
+          const roomRef = doc(db, 'matches', challengeCode);
+          const data = await runTransaction(db, async transaction => {
+              const matchSnap = await transaction.get(roomRef);
+              if (!matchSnap.exists()) throw new Error('room-not-found');
+              const room = matchSnap.data();
+              if (room.status !== 'waiting') throw new Error('room-unavailable');
+              transaction.update(roomRef, { status: 'playing', guestName: players[0].name });
+              return room;
+          });
+          onStart({
+              gameMode: 'challenge',
+              challengeCode,
+              localRole: 'guest',
+              players: [players[0], { name: data.hostName || 'Host', isBot: false, difficulty: 5, color: 'emerald' }],
+              startingScore: data.config.startingScore,
+              setsToWin: data.config.setsToWin,
+              legsToWin: data.config.legsToWin,
+              checkIn: data.config.checkIn,
+              checkout: data.config.checkout,
+              muteCaller
+          });
       } catch (error) { 
           console.error("Error joining:", error); 
-          alert("Hiba a csatlakozáskor!"); 
+          alert(error instanceof Error && error.message === 'room-unavailable' ? txt.roomFull : lang === 'hu' ? 'A szoba nem található vagy nem lehet csatlakozni.' : 'Room not found or could not be joined.');
       }
       setIsJoiningMatch(false);
   };
 
   return (
-    <div className="w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center pt-8 pb-24 px-4 relative">
+    <div className={`w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center pb-24 px-4 relative ${savedMatch && !hostedCode && !showTutorial && !showAuth && !showQuests ? 'pt-24' : 'pt-8'}`}>
       
       {savedMatch && !hostedCode && !showTutorial && !showAuth && !showQuests && (
-       <div className="fixed top-20 left-4 right-4 z-[50] max-w-sm mx-auto bg-emerald-500 border border-emerald-400 p-4 rounded-2xl shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex justify-between items-center animate-bounce">
+       <div className="w-full max-w-sm mx-auto mb-4 bg-emerald-500 border border-emerald-400 p-4 rounded-2xl shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex flex-wrap justify-between items-center gap-3">
           <div className="flex flex-col">
               <span className="text-slate-900 font-black uppercase text-sm">{txt.resumeTitle}</span>
               <span className="text-emerald-900 font-bold text-xs">{txt.resumeDesc}</span>
@@ -388,8 +435,8 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
            <UsersIcon className="h-24 w-24 text-amber-500 mb-6 animate-pulse" />
            <h2 className="text-4xl font-black text-white mb-2 uppercase italic tracking-tighter">{txt.waitingFriend}</h2>
            <p className="text-slate-400 font-bold mb-8">{txt.shareCode}</p>
-           <div className="bg-[#12141a] border border-amber-500/30 p-8 rounded-3xl mb-8 shadow-[0_0_30px_rgba(245,158,11,0.1)] w-full max-w-sm"><span className="text-5xl font-mono font-black text-amber-400 tracking-widest select-all block">{hostedCode}</span></div>
-           <button onClick={() => setHostedCode(null)} className="w-full max-w-sm h-14 rounded-xl bg-slate-800 text-white font-black uppercase shadow-xl hover:bg-slate-700">{txt.cancel}</button>
+           <div className="bg-[#12141a] border border-amber-500/30 p-5 sm:p-8 rounded-3xl mb-8 shadow-[0_0_30px_rgba(245,158,11,0.1)] w-full max-w-sm"><span className="text-[clamp(1.15rem,5vw,2.5rem)] font-mono font-black text-amber-400 tracking-wider select-all block break-all">{hostedCode}</span></div>
+           <button onClick={handleCancelHost} className="w-full max-w-sm h-14 rounded-xl bg-slate-800 text-white font-black uppercase shadow-xl hover:bg-slate-700">{txt.cancel}</button>
        </div>
       )}
 
@@ -437,8 +484,8 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                             </button>
                         </div>
                         <div className="flex justify-between items-center px-1 mb-2">
-                            <button className="text-[10px] font-black text-emerald-500 uppercase hover:underline">{txt.magicLink}</button>
-                            <button className="text-[10px] font-black text-slate-500 uppercase hover:text-slate-300">{txt.forgotPass}</button>
+                            <button onClick={handleMagicLink} disabled={isLoggingIn} className="text-[10px] font-black text-emerald-500 uppercase hover:underline disabled:opacity-50">{txt.magicLink}</button>
+                            <button onClick={handlePasswordReset} disabled={isLoggingIn} className="text-[10px] font-black text-slate-500 uppercase hover:text-slate-300 disabled:opacity-50">{txt.forgotPass}</button>
                         </div>
                         <button onClick={handleEmailLogin} disabled={isLoggingIn} className="w-full h-14 bg-emerald-500 text-slate-900 rounded-xl font-black uppercase tracking-widest disabled:opacity-50 hover:bg-emerald-400 active:scale-95 transition-all">
                             {isLoggingIn ? 'Betöltés...' : 'Bejelentkezés / Reg.'}
@@ -574,6 +621,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           
           <div className="flex gap-2">
             <button onClick={() => setTab('career')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'career' ? 'bg-[#b655ff] text-white border-[#b655ff] shadow-[0_0_15px_rgba(182,85,255,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.career}</button>
+            <button onClick={() => setTab('cricket' as any)} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${(tab as string) === 'cricket' ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>Cricket</button>
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
             {onOpenCoach && (
                 <button onClick={onOpenCoach} className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border bg-[#12141a] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 shadow-[0_0_10px_rgba(6,182,212,0.15)] flex items-center justify-center">
@@ -824,6 +872,27 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                         {txt.careerStart}
                     </button>
                 )}
+            </div>
+        )}
+
+        {(tab as string) === 'cricket' && (
+            <div className="flex flex-col gap-4 text-center">
+                <div className="bg-[#0b0d11] border border-emerald-500/30 p-6 rounded-3xl text-left shadow-[0_0_20px_rgba(16,185,129,0.05)]">
+                    <h3 className="text-2xl font-black text-white italic uppercase mb-2">Cricket</h3>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-4">A legelterjedtebb pub darts játékmód</p>
+                    <ul className="text-xs text-slate-300 font-bold flex flex-col gap-2">
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Célpontok: 15-20 és Bull</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> 3 találat = szektorzárás</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Zárt szektorra dobva pontot kapsz (ha az ellenfél még nem zárta)</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Győz, aki elsőként zárja az összes szektort ÉS vezet pontban</li>
+                    </ul>
+                </div>
+                <button
+                    onClick={() => onStart({ gameMode: 'cricket', players: players.slice(0, 2).map(p => ({ ...p, isBot: false })), startingScore: 0, setsToWin: 1, legsToWin: 1, checkIn: 'single', checkout: 'single', muteCaller })}
+                    className="w-full h-16 rounded-2xl bg-emerald-500 text-slate-950 text-xl font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] mt-2"
+                >
+                    Cricket Indítása
+                </button>
             </div>
         )}
 

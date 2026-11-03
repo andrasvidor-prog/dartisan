@@ -9,15 +9,16 @@ import { CareerBracket } from '../components/CareerBracket';
 import { AiCoach } from '../components/AiCoach';
 import { TournamentScreen } from '../components/TournamentScreen';
 import { SettingsScreen } from '../components/SettingsScreen';
-import { ClubScreen } from '../components/ClubScreen'; 
+import { ClubScreen } from '../components/ClubScreen';
+import { CricketScreen } from '../components/CricketScreen';
 import { auth, db } from '../firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDocFromServer, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export type Language = 'hu' | 'en';
 
 export default function Home() {
-  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'career' | 'coach' | 'custom_tournament' | 'settings' | 'club'>('setup');
+  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'career' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
   const [lang, setLang] = useState<Language>('hu');
   const [matchConfig, setMatchConfig] = useState<any>(null);
   const [matchResult, setMatchResult] = useState<any>(null); 
@@ -30,18 +31,27 @@ export default function Home() {
   const [tournamentConfig, setTournamentConfig] = useState<any>(null);
   const [showTournament, setShowTournament] = useState(false);
 
-  useEffect(() => { 
-      setIsMounted(true); 
+  useEffect(() => {
+      setIsMounted(true);
       const savedLang = localStorage.getItem('dartisan_lang') as Language;
       if (savedLang) setLang(savedLang);
+
+      // Apply saved theme
+      const savedTheme = localStorage.getItem('dartisan_theme') || 'dark';
+      document.body.classList.remove('theme-dark', 'theme-amoled', 'theme-contrast', 'theme-dim');
+      if (savedTheme !== 'dark') document.body.classList.add(`theme-${savedTheme}`);
 
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
           if (user) {
               const docRef = doc(db, 'users', user.uid);
-              const docSnap = await getDoc(docRef);
-              const todayStr = new Date().toISOString().split('T')[0];
+              // A napváltást a Firestore által visszaigazolt szerveridőből számoljuk.
+              await setDoc(docRef, { serverClockProbe: serverTimestamp() }, { merge: true });
+              const docSnap = await getDocFromServer(docRef);
+              const serverNow = docSnap.get('serverClockProbe')?.toDate();
+              if (!serverNow) throw new Error('Firestore server time unavailable');
+              const todayStr = serverNow.toISOString().split('T')[0];
 
-              if (docSnap.exists()) {
+              if (docSnap.exists() && docSnap.data().createdAt) {
                   const data = docSnap.data();
                   setCurrentUser({ ...user, ...data });
                   setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
@@ -53,8 +63,8 @@ export default function Home() {
                   if (lastLogin && lastLogin !== todayStr) {
                       const lastDate = new Date(lastLogin);
                       const todayDate = new Date(todayStr);
-                      const diffTime = Math.abs(todayDate.getTime() - lastDate.getTime());
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                      const diffTime = todayDate.getTime() - lastDate.getTime();
+                      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
                       if (diffDays === 1) {
                           currentStreak += 1; // Egymást követő nap
@@ -71,8 +81,8 @@ export default function Home() {
                   await setDoc(docRef, { 
                       name: displayName, email: user.email, photoURL: user.photoURL, 
                       tag: randomTag, xp: 0, weeklyXp: 0, matchesWon: 0, 
-                      createdAt: new Date(), lastLogin: todayStr, streak: 1 
-                  });
+                      createdAt: serverTimestamp(), lastLogin: todayStr, streak: 1
+                  }, { merge: true });
                   setCurrentUser({ ...user, displayName, tag: randomTag });
                   setUserLevel(1);
                   setUserStreak(1);
@@ -82,7 +92,8 @@ export default function Home() {
           }
       });
       return () => unsubscribe();
-  }, [currentScreen]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!isMounted) return null;
 
@@ -109,15 +120,17 @@ export default function Home() {
           lang={lang} 
           userLevel={userLevel}
           userStreak={userStreak}
-          onStart={(config) => { 
+          onStart={(config) => {
             setMatchConfig(config);
             if (config.gameMode === 'career') {
                 setCurrentScreen('career');
+            } else if (config.gameMode === 'cricket') {
+                setCurrentScreen('cricket');
             } else {
-                setMatchResult(null); 
-                setCurrentScreen('match'); 
+                setMatchResult(null);
+                setCurrentScreen('match');
             }
-          }} 
+          }}
           onOpenProfile={() => setCurrentScreen('profile')} 
           onOpenCoach={() => setCurrentScreen('coach')}
           onStartTournament={() => setShowTournament(true)} 
@@ -137,10 +150,21 @@ export default function Home() {
         />
       )}
 
+      {currentScreen === 'cricket' && matchConfig && (
+        <CricketScreen
+          config={matchConfig}
+          onBack={() => setCurrentScreen('setup')}
+        />
+      )}
+
       {currentScreen === 'match' && matchConfig && (
-        <MatchScreen 
-          config={matchConfig} 
-          lang={lang} 
+        <MatchScreen
+          config={matchConfig}
+          lang={lang}
+          onRematch={() => {
+              setMatchResult(null);
+              setCurrentScreen('match');
+          }}
           onBackToSetup={() => {
               if (matchConfig.isCustomTournamentMatch) {
                   setCurrentScreen('custom_tournament');
@@ -151,7 +175,11 @@ export default function Home() {
               }
           }}
           onMatchComplete={(playersData) => {
-              const winner = playersData.reduce((prev: any, current: any) => (prev.setsWon > current.setsWon || prev.legsWon > current.legsWon) ? prev : current);
+              const winner = playersData.reduce((prev: any, current: any) => {
+                  const prevScore = prev.setsWon * 1000 + prev.legsWon;
+                  const currScore = current.setsWon * 1000 + current.legsWon;
+                  return prevScore >= currScore ? prev : current;
+              });
               setMatchResult({
                   winnerId: winner.id,
                   score1: playersData[0].setsWon > 0 ? playersData[0].setsWon : playersData[0].legsWon,

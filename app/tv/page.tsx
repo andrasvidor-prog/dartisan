@@ -1,133 +1,153 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { XMarkIcon, ArrowsPointingOutIcon, EyeSlashIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect, useCallback } from 'react';
 
-export default function TvModePage() {
+const DARTBOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+
+const p2c = (cx: number, cy: number, r: number, angle: number) => {
+    const a = (angle - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+};
+const arc = (x: number, y: number, r1: number, r2: number, s: number, e: number) => {
+    const so = p2c(x,y,r2,e), eo = p2c(x,y,r2,s), si = p2c(x,y,r1,e), ei = p2c(x,y,r1,s);
+    const f = e-s <= 180 ? '0' : '1';
+    return ['M',so.x,so.y,'A',r2,r2,0,f,0,eo.x,eo.y,'L',ei.x,ei.y,'A',r1,r1,0,f,1,si.x,si.y,'Z'].join(' ');
+};
+
+const dartCoord = (val: number, mult: number, idx: number) => {
+    const C = 150, s = idx*61 + val*7 + mult*13;
+    if (val === 0) { const a=((s*73)%360-90)*Math.PI/180; return {x:C+158*Math.cos(a),y:C+158*Math.sin(a)}; }
+    if (val === 25) { const a=((s*43)%360-90)*Math.PI/180,r=mult===2?3+(s%4):9+(s%6); return {x:C+r*Math.cos(a),y:C+r*Math.sin(a)}; }
+    const si=DARTBOARD_ORDER.indexOf(val), ji=(s%12)-6;
+    const a=(si*18+ji-90)*Math.PI/180;
+    const r=mult===3?83+(s%7):mult===2?128+(s%7):s%2===0?30+(s%45):92+(s%30);
+    return {x:C+r*Math.cos(a),y:C+r*Math.sin(a)};
+};
+
+const HEX: Record<string,string> = { emerald:'#34d399', rose:'#fb7185', cyan:'#22d3ee', amber:'#fbbf24', purple:'#b655ff' };
+
+export default function TVPage() {
     const [syncData, setSyncData] = useState<any>(null);
-    const [chromaKey, setChromaKey] = useState<'bg-[#00FF00]' | 'bg-[#0000FF]' | 'bg-transparent'>('bg-[#0000FF]'); // Képed alapján alapból Kék
-    const [position, setPosition] = useState<'bottom' | 'top-left' | 'top-right'>('bottom');
-    const [showEditor, setShowEditor] = useState(true);
+    const [tick, setTick]         = useState(0);
 
-    // Valós idejű adatszinkronizáció a főablakból
-    useEffect(() => {
-        const fetchSyncData = () => {
-            const data = localStorage.getItem('dartisan_tv_sync');
-            if (data) {
-                try {
-                    setSyncData(JSON.parse(data));
-                } catch (e) {
-                    console.error("TV Sync hiba", e);
-                }
-            }
-        };
-
-        // Kezdeti betöltés
-        fetchSyncData();
-
-        // Figyeljük a storage változásokat (ha másik tabon frissül)
-        window.addEventListener('storage', fetchSyncData);
-        
-        // Biztonsági frissítés másodpercenként kétszer (ha ugyanazon a tabon vagy ablakon belül mozog valami)
-        const interval = setInterval(fetchSyncData, 500);
-
-        return () => {
-            window.removeEventListener('storage', fetchSyncData);
-            clearInterval(interval);
-        };
+    const read = useCallback(() => {
+        try {
+            const raw = localStorage.getItem('dartisan_tv_sync');
+            if (raw) { setSyncData(JSON.parse(raw)); setTick(t=>t+1); }
+        } catch {}
     }, []);
 
-    // Ha nincs adat, egy várakozó képernyőt mutatunk
-    if (!syncData || !syncData.players || syncData.players.length === 0) {
-        return (
-            <div className={`fixed inset-0 ${chromaKey} flex items-center justify-center`}>
-                <div className="bg-[#12141a] p-8 rounded-3xl border border-slate-800 shadow-2xl flex flex-col items-center">
-                    <ArrowsPointingOutIcon className="h-16 w-16 text-slate-500 animate-pulse mb-4" />
-                    <h2 className="text-2xl font-black text-white uppercase tracking-widest">TV Mód Készenlétben</h2>
-                    <p className="text-slate-400 font-bold mt-2">Indíts el egy meccset a főablakban!</p>
-                </div>
-            </div>
-        );
-    }
+    useEffect(() => {
+        read();
+        const onStorage = (e: StorageEvent) => { if (e.key === 'dartisan_tv_sync') read(); };
+        window.addEventListener('storage', onStorage);
+        const iv = setInterval(read, 400);
+        return () => { window.removeEventListener('storage', onStorage); clearInterval(iv); };
+    }, [read]);
 
-    const p1 = syncData.players[0];
-    const p2 = syncData.players[1] || { name: 'Várakozás...', score: 0, setsWon: 0, legsWon: 0 };
-    const setsToWin = syncData.config?.setsToWin || 1;
+    if (!syncData?.players?.length) return (
+        <div className="fixed inset-0 bg-[#050508] flex flex-col items-center justify-center gap-4">
+            <div className="text-6xl">📺</div>
+            <p className="text-2xl font-black text-white uppercase tracking-widest">Dartisan TV</p>
+            <p className="text-sm text-slate-500 font-bold text-center max-w-xs leading-relaxed">
+                Nyiss meg egy meccset a Dartisan appban,<br />majd kattints a <span className="text-white font-black">TV</span> gombra.
+            </p>
+            <div className="flex gap-1 mt-4">{[0,1,2].map(i=><div key={i} className="w-2 h-2 rounded-full bg-slate-700 animate-pulse" style={{animationDelay:`${i*200}ms`}}/>)}</div>
+        </div>
+    );
+
+    const { players, activePlayer, currentDarts } = syncData;
+    const ap    = players[activePlayer] ?? players[0];
+    const apHex = HEX[ap?.color] ?? '#34d399';
 
     return (
-        <div className={`fixed inset-0 z-[999] ${chromaKey} flex flex-col transition-colors duration-300`}>
-            
-            {/* EDITOR PANEL (OBS-ben elrejthető vagy kivágható) */}
-            {showEditor ? (
-                <div className="absolute top-4 left-4 z-10 bg-[#12141a]/95 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-2xl w-72 animate-in fade-in slide-in-from-top-4">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                            <ArrowsPointingOutIcon className="h-5 w-5 text-cyan-400"/> TV Editor
-                        </h3>
-                        <div className="flex gap-2">
-                            <button onClick={() => setShowEditor(false)} className="p-1.5 bg-slate-800 rounded-lg text-slate-400 hover:text-white" title="Editor elrejtése">
-                                <EyeSlashIcon className="h-4 w-4" />
-                            </button>
+        <div className="fixed inset-0 bg-[#050508] flex flex-col overflow-hidden select-none">
+
+            {/* ── SCORE HEADER ──────────────────────────────────────────── */}
+            <div className="flex border-b border-[#0e1017] shrink-0">
+                {players.map((pl: any) => {
+                    const isAct = pl.id === activePlayer;
+                    const hex   = HEX[pl.color] ?? '#34d399';
+                    return (
+                        <div key={pl.id} className={`flex-1 flex flex-col items-center py-4 sm:py-6 gap-1 transition-all duration-300 ${isAct ? 'bg-[#0c0e14]' : 'opacity-25'}`}>
+                            <span className="text-[11px] sm:text-xs font-black uppercase tracking-[0.25em]" style={{color:hex}}>{pl.name}</span>
+                            <span className="font-mono font-black text-white leading-none" style={{fontSize:'clamp(3.5rem,14vw,9rem)'}}>{pl.score}</span>
+                            <span className="text-[10px] text-slate-600 font-bold">S:{pl.setsWon} L:{pl.legsWon}</span>
+                            {isAct && (
+                                <div className="flex gap-1.5 mt-1">
+                                    {[0,1,2].map(di=>{
+                                        const d=currentDarts[di];
+                                        return <span key={di} className={`w-14 h-7 rounded-lg border font-mono text-[11px] font-black flex items-center justify-center transition-all ${d?'bg-slate-700 text-white border-slate-600':'bg-[#0b0d11] border-slate-900 text-slate-800'}`}>
+                                            {d?`${d.mult>1?(d.mult===3?'T':'D'):''}${d.val===0?'MISS':d.val===25?'BULL':d.val}`:'—'}
+                                        </span>;
+                                    })}
+                                </div>
+                            )}
                         </div>
-                    </div>
-                    
-                    <div className="flex flex-col gap-3">
-                        <label className="text-[10px] font-black text-slate-500 uppercase">Háttér (Chroma Key)</label>
-                        <div className="flex gap-2">
-                            <button onClick={() => setChromaKey('bg-[#00FF00]')} className={`flex-1 h-8 rounded-md bg-[#00FF00] border-2 ${chromaKey === 'bg-[#00FF00]' ? 'border-white' : 'border-transparent'}`}></button>
-                            <button onClick={() => setChromaKey('bg-[#0000FF]')} className={`flex-1 h-8 rounded-md bg-[#0000FF] border-2 ${chromaKey === 'bg-[#0000FF]' ? 'border-white' : 'border-transparent'}`}></button>
-                            <button onClick={() => setChromaKey('bg-transparent')} className={`flex-1 h-8 rounded-md bg-slate-800 border-2 text-[10px] font-black text-slate-400 ${chromaKey === 'bg-transparent' ? 'border-white text-white' : 'border-transparent'}`}>ÁTLÁTSZÓ</button>
-                        </div>
+                    );
+                })}
+            </div>
 
-                        <label className="text-[10px] font-black text-slate-500 uppercase mt-2">Pozíció</label>
-                        <select value={position} onChange={(e) => setPosition(e.target.value as any)} className="bg-slate-900 text-xs font-bold text-white rounded-lg p-2 border border-slate-700 outline-none">
-                            <option value="bottom">Lent Középen</option>
-                            <option value="top-left">Bal Felül</option>
-                            <option value="top-right">Jobb Felül</option>
-                        </select>
-                    </div>
-                </div>
-            ) : (
-                <button onClick={() => setShowEditor(true)} className="absolute top-4 left-4 z-10 p-3 bg-black/50 hover:bg-black/80 rounded-full text-white/50 hover:text-white backdrop-blur-sm transition-all shadow-lg">
-                    <EyeIcon className="h-5 w-5" />
-                </button>
-            )}
+            {/* ── FULLSCREEN DARTBOARD ──────────────────────────────────── */}
+            <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
+                <svg viewBox="0 0 300 300" style={{height:'min(75vmin,75vh)',width:'min(75vmin,75vh)'}}>
+                    <circle cx="150" cy="150" r="149" fill="#040406"/>
+                    <circle cx="150" cy="150" r="148" fill="#0b0d11"/>
+                    {DARTBOARD_ORDER.map((num,i)=>{
+                        const sa=i*18-9, ea=sa+18, isEven=i%2===0;
+                        const single=isEven?'#1a1a1a':'#d4d4d4';
+                        const tp=p2c(150,150,142,sa+9);
+                        return (
+                            <g key={num}>
+                                <path d={arc(150,150,15,80,sa,ea)}   fill={single}                        stroke="#040406" strokeWidth="0.6"/>
+                                <path d={arc(150,150,80,90,sa,ea)}   fill={isEven?'#c8102e':'#00953f'}    stroke="#040406" strokeWidth="0.6"/>
+                                <path d={arc(150,150,90,125,sa,ea)}  fill={single}                        stroke="#040406" strokeWidth="0.6"/>
+                                <path d={arc(150,150,125,135,sa,ea)} fill={isEven?'#c8102e':'#00953f'}    stroke="#040406" strokeWidth="0.6"/>
+                                <text x={tp.x} y={tp.y} fill="#374151" fontSize="10" fontWeight="900"
+                                    textAnchor="middle" alignmentBaseline="middle"
+                                    transform={`rotate(${sa+9+90} ${tp.x} ${tp.y})`}>{num}</text>
+                            </g>
+                        );
+                    })}
+                    <circle cx="150" cy="150" r="15"   fill="#00953f" stroke="#040406" strokeWidth="0.6"/>
+                    <circle cx="150" cy="150" r="6.35" fill="#c8102e" stroke="#040406" strokeWidth="0.6"/>
 
-            {/* A TÉNYLEGES SCOREBOARD (Amit a nézők látnak) */}
-            <div className={`absolute ${position === 'bottom' ? 'bottom-8 left-1/2 -translate-x-1/2' : position === 'top-left' ? 'top-8 left-8' : 'top-8 right-8'} transition-all duration-500`}>
-                
-                <div className="bg-[#0b0d11]/95 backdrop-blur-md border-2 border-slate-800 rounded-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col min-w-[400px]">
-                    {/* Fejléc */}
-                    <div className="bg-slate-900 flex text-[10px] font-black uppercase text-slate-500 tracking-widest text-center border-b border-slate-800">
-                        <div className="flex-[3] py-1 text-left px-4">Játékos</div>
-                        {setsToWin > 1 && <div className="flex-1 py-1 border-l border-slate-800">Set</div>}
-                        <div className="flex-1 py-1 border-l border-slate-800">Leg</div>
-                        <div className="flex-1 py-1 border-l border-slate-800 text-white">Pont</div>
-                    </div>
+                    {/* ── DART MARKERS ────────────────────────────────── */}
+                    {currentDarts.map((d: any, di: number)=>{
+                        const pos=dartCoord(d.val,d.mult,di);
+                        return (
+                            <g key={`${di}-${tick}`}>
+                                {/* Glow ring */}
+                                <circle cx={pos.x} cy={pos.y} r="13" fill={apHex} opacity="0.15"/>
+                                <circle cx={pos.x} cy={pos.y} r="9"  fill={apHex} opacity="0.2"/>
+                                {/* Drop shadow */}
+                                <circle cx={pos.x+1.5} cy={pos.y+1.5} r="7" fill="#000" opacity="0.6"/>
+                                {/* Main body */}
+                                <circle cx={pos.x} cy={pos.y} r="7" fill={apHex} stroke="#fff" strokeWidth="1.5" opacity="0.97"/>
+                                {/* Dart number */}
+                                <text x={pos.x} y={pos.y+0.5} fill="#000" fontSize="8.5" fontWeight="900"
+                                    textAnchor="middle" alignmentBaseline="middle" style={{userSelect:'none'}}>{di+1}</text>
+                            </g>
+                        );
+                    })}
 
-                    {/* Játékos 1 (Aktív játékos jelzővel) */}
-                    <div className={`flex items-center border-b border-slate-800 transition-colors ${syncData.activePlayer === 0 ? 'bg-slate-800/80' : 'bg-[#12141a]'}`}>
-                        <div className={`flex-[3] px-4 py-3 font-black text-lg uppercase truncate flex items-center gap-2 ${syncData.activePlayer === 0 ? 'text-emerald-400' : 'text-white'}`}>
-                            {syncData.activePlayer === 0 && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>}
-                            {p1.name}
-                        </div>
-                        {setsToWin > 1 && <div className="flex-1 py-3 text-center font-bold text-slate-300 bg-slate-900/30 text-lg border-l border-slate-800">{p1.setsWon}</div>}
-                        <div className="flex-1 py-3 text-center font-bold text-slate-300 bg-slate-900/30 text-lg border-l border-slate-800">{p1.legsWon}</div>
-                        <div className={`flex-1 py-3 text-center font-black text-2xl border-l border-slate-800 ${syncData.activePlayer === 0 ? 'bg-slate-900 text-emerald-400' : 'bg-slate-950 text-white'}`}>{p1.score}</div>
-                    </div>
+                    {/* Aiming crosshair when no darts */}
+                    {currentDarts.length===0 && (
+                        <g opacity="0.06">
+                            <line x1="130" y1="150" x2="170" y2="150" stroke="#94a3b8" strokeWidth="1"/>
+                            <line x1="150" y1="130" x2="150" y2="170" stroke="#94a3b8" strokeWidth="1"/>
+                            <circle cx="150" cy="150" r="20" fill="none" stroke="#94a3b8" strokeWidth="1"/>
+                        </g>
+                    )}
+                </svg>
+            </div>
 
-                    {/* Játékos 2 (Aktív játékos jelzővel) */}
-                    <div className={`flex items-center transition-colors ${syncData.activePlayer === 1 ? 'bg-slate-800/80' : 'bg-[#12141a]'}`}>
-                        <div className={`flex-[3] px-4 py-3 font-black text-lg uppercase truncate flex items-center gap-2 ${syncData.activePlayer === 1 ? 'text-amber-400' : 'text-white'}`}>
-                            {syncData.activePlayer === 1 && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>}
-                            {p2.name}
-                        </div>
-                        {setsToWin > 1 && <div className="flex-1 py-3 text-center font-bold text-slate-300 bg-slate-900/30 text-lg border-l border-slate-800">{p2.setsWon}</div>}
-                        <div className="flex-1 py-3 text-center font-bold text-slate-300 bg-slate-900/30 text-lg border-l border-slate-800">{p2.legsWon}</div>
-                        <div className={`flex-1 py-3 text-center font-black text-2xl border-l border-slate-800 ${syncData.activePlayer === 1 ? 'bg-slate-900 text-amber-400' : 'bg-slate-950 text-white'}`}>{p2.score}</div>
-                    </div>
-                </div>
-
+            {/* ── FOOTER ────────────────────────────────────────────────── */}
+            <div className="shrink-0 flex items-center justify-between px-6 py-2 border-t border-[#0e1017]">
+                <span className="text-[9px] font-black text-slate-800 uppercase tracking-[0.3em]">DARTISAN TV</span>
+                <span className="text-[9px] font-bold text-slate-800">
+                    {currentDarts.length===0 ? 'Várakozás dobásra...' : `${currentDarts.length} / 3 nyíl bedobva`}
+                </span>
             </div>
         </div>
     );

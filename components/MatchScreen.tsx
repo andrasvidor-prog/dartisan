@@ -12,6 +12,7 @@ import {
 import type { Language } from '@/app/page';
 import { db, auth } from '../firebase';
 import { doc, updateDoc, onSnapshot, increment, setDoc, getDoc, collection } from 'firebase/firestore';
+import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
 
 export type Dart = { val: number; mult: number };
 
@@ -52,6 +53,29 @@ const describeArc = (x: number, y: number, innerRadius: number, outerRadius: num
   const endInner = polarToCartesian(x, y, innerRadius, startAngle);
   const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
   return [ "M", startOuter.x, startOuter.y, "A", outerRadius, outerRadius, 0, largeArcFlag, 0, endOuter.x, endOuter.y, "L", endInner.x, endInner.y, "A", innerRadius, innerRadius, 0, largeArcFlag, 1, startInner.x, startInner.y, "Z" ].join(" ");
+};
+
+// ─── TV Mode dart coordinate mapper ──────────────────────────────────────────
+const tvDartCoord = (val: number, mult: number, idx: number) => {
+    const C = 150;
+    const s = idx * 61 + val * 7 + mult * 13;
+    if (val === 0) { // miss - outside board
+        const a = ((s * 73) % 360 - 90) * Math.PI / 180;
+        return { x: C + 158 * Math.cos(a), y: C + 158 * Math.sin(a) };
+    }
+    if (val === 25) {
+        const a = ((s * 43) % 360 - 90) * Math.PI / 180;
+        const r = mult === 2 ? 3 + (s % 4) : 9 + (s % 6);
+        return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
+    }
+    const segIdx = DARTBOARD_ORDER.indexOf(val);
+    const jitter = (s % 12) - 6;
+    const a = (segIdx * 18 - 9 + 9 + jitter - 90) * Math.PI / 180;
+    let r: number;
+    if      (mult === 3) r = 83 + (s % 7);
+    else if (mult === 2) r = 128 + (s % 7);
+    else                 r = s % 2 === 0 ? 30 + (s % 45) : 92 + (s % 30);
+    return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
 };
 
 const DartboardHeatmap = ({ heatmapData }: { heatmapData: Record<string, { hits: number, throws: number }> }) => {
@@ -100,32 +124,83 @@ const DartboardHeatmap = ({ heatmapData }: { heatmapData: Record<string, { hits:
     );
 };
 
-const InteractiveDartboard = ({ onDartSelect }: { onDartSelect: (val: number, mult: number) => void }) => {
-    const size = 300;
-    const center = size / 2;
-    const sliceAngle = 360 / 20;
+const InteractiveDartboard = ({
+    onDartSelect,
+    currentDarts = [],
+    playerColor  = 'emerald',
+}: {
+    onDartSelect: (val: number, mult: number) => void;
+    currentDarts?: Dart[];
+    playerColor?: string;
+}) => {
+    const C = 150, SA = 18;
+    const hex = playerColor === 'rose'   ? '#fb7185'
+              : playerColor === 'cyan'   ? '#22d3ee'
+              : playerColor === 'amber'  ? '#fbbf24'
+              : playerColor === 'purple' ? '#b655ff'
+              : '#34d399';
+
+    // Build hit-overlay lookup from currentDarts
+    const hitSingle  = new Set<number>();
+    const hitTriple  = new Set<number>();
+    const hitDouble  = new Set<number>();
+    let bullHit = false, dbullHit = false;
+    currentDarts.forEach(d => {
+        if (d.val === 0)  return;
+        if (d.val === 25) { d.mult === 2 ? dbullHit = true : bullHit = true; return; }
+        if (d.mult === 3) hitTriple.add(d.val);
+        else if (d.mult === 2) hitDouble.add(d.val);
+        else hitSingle.add(d.val);
+    });
+
     return (
-        <svg viewBox={`0 0 ${size} ${size}`} className="drop-shadow-2xl h-full w-auto max-h-[50vh] min-h-[250px] mx-auto select-none overflow-visible">
-            <circle cx={center} cy={center} r={148} fill="#0b0d11" onClick={() => onDartSelect(0, 1)} className="cursor-pointer hover:fill-slate-900 transition-colors" />
+        <svg viewBox="0 0 300 300" className="drop-shadow-2xl block h-auto max-w-full mx-auto select-none overflow-visible" style={{ width: 'min(100%, calc(100dvh - 250px), 900px)' }}>
+            {/* Background / miss zone */}
+            <circle cx={C} cy={C} r={148} fill="#0b0d11" onClick={() => onDartSelect(0,1)} className="cursor-pointer hover:fill-slate-900 transition-colors" />
+
             {DARTBOARD_ORDER.map((num, i) => {
-                const startAngle = i * sliceAngle - (sliceAngle / 2);
-                const endAngle = startAngle + sliceAngle;
+                const sa = i*SA - SA/2, ea = sa + SA;
                 const isEven = i % 2 === 0;
-                const singleColor = isEven ? '#12141a' : '#f8fafc';
-                const multColor = isEven ? '#e11d48' : '#10b981';
-                const textPos = polarToCartesian(center, center, 142, startAngle + (sliceAngle / 2));
+                const single = isEven ? '#12141a' : '#f8fafc';
+                const multi  = isEven ? '#e11d48' : '#10b981';
+                const tp     = polarToCartesian(C, C, 142, sa + SA/2);
                 return (
                     <g key={num}>
-                        <path d={describeArc(center, center, 15, 80, startAngle, endAngle)} fill={singleColor} stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(num, 1)} className="cursor-pointer hover:opacity-75 transition-opacity" />
-                        <path d={describeArc(center, center, 80, 90, startAngle, endAngle)} fill={multColor} stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(num, 3)} className="cursor-pointer hover:opacity-75 transition-opacity" />
-                        <path d={describeArc(center, center, 90, 125, startAngle, endAngle)} fill={singleColor} stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(num, 1)} className="cursor-pointer hover:opacity-75 transition-opacity" />
-                        <path d={describeArc(center, center, 125, 135, startAngle, endAngle)} fill={multColor} stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(num, 2)} className="cursor-pointer hover:opacity-75 transition-opacity" />
-                        <text x={textPos.x} y={textPos.y} fill="#94a3b8" fontSize="10" fontWeight="900" textAnchor="middle" alignmentBaseline="middle" transform={`rotate(${startAngle + (sliceAngle / 2)} ${textPos.x} ${textPos.y})`} pointerEvents="none">{num}</text>
+                        {/* ── Base segments ── */}
+                        <path d={describeArc(C,C,15,80,sa,ea)}   fill={single} stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(num,1)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+                        <path d={describeArc(C,C,80,90,sa,ea)}   fill={multi}  stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(num,3)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+                        <path d={describeArc(C,C,90,125,sa,ea)}  fill={single} stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(num,1)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+                        <path d={describeArc(C,C,125,135,sa,ea)} fill={multi}  stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(num,2)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+                        <text x={tp.x} y={tp.y} fill="#94a3b8" fontSize="10" fontWeight="900" textAnchor="middle" alignmentBaseline="middle"
+                              transform={`rotate(${sa+SA/2} ${tp.x} ${tp.y})`} pointerEvents="none">{num}</text>
+
+                        {/* ── Hit overlays (show recorded darts) ── */}
+                        {hitSingle.has(num) && <>
+                            <path d={describeArc(C,C,15,80,sa,ea)}   fill={hex} opacity="0.55" pointerEvents="none"/>
+                            <path d={describeArc(C,C,90,125,sa,ea)}  fill={hex} opacity="0.55" pointerEvents="none"/>
+                        </>}
+                        {hitTriple.has(num) && <path d={describeArc(C,C,80,90,sa,ea)}   fill={hex} opacity="0.8" pointerEvents="none"/>}
+                        {hitDouble.has(num) && <path d={describeArc(C,C,125,135,sa,ea)} fill={hex} opacity="0.8" pointerEvents="none"/>}
                     </g>
                 );
             })}
-            <circle cx={center} cy={center} r={15} fill="#10b981" stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(25, 1)} className="cursor-pointer hover:opacity-75 transition-opacity" />
-            <circle cx={center} cy={center} r={6.35} fill="#e11d48" stroke="#1e293b" strokeWidth="0.5" onClick={() => onDartSelect(25, 2)} className="cursor-pointer hover:opacity-75 transition-opacity" />
+
+            {/* Bull */}
+            <circle cx={C} cy={C} r={15}   fill="#10b981" stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(25,1)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+            <circle cx={C} cy={C} r={6.35} fill="#e11d48" stroke="#1e293b" strokeWidth="0.5" onClick={()=>onDartSelect(25,2)} className="cursor-pointer hover:opacity-75 transition-opacity"/>
+            {bullHit  && <circle cx={C} cy={C} r={15}   fill={hex} opacity="0.55" pointerEvents="none"/>}
+            {dbullHit && <circle cx={C} cy={C} r={6.35} fill={hex} opacity="0.8"  pointerEvents="none"/>}
+
+            {/* Dart index badges */}
+            {currentDarts.map((d, di) => {
+                const pos = tvDartCoord(d.val, d.mult, di);
+                return (
+                    <g key={di} pointerEvents="none">
+                        <circle cx={pos.x} cy={pos.y} r="8"   fill={hex} opacity="0.9" stroke="#fff" strokeWidth="1.5"/>
+                        <text   x={pos.x}  y={pos.y+0.5} fill="#000" fontSize="8" fontWeight="900" textAnchor="middle" alignmentBaseline="middle">{di+1}</text>
+                    </g>
+                );
+            })}
         </svg>
     );
 };
@@ -271,14 +346,15 @@ const COLOR_STYLES: Record<string, string> = {
 
 const HUNTER_TARGETS = ['D20', 'D16', 'D10', 'D8', 'D12', 'T20', 'T19', 'T18', 'BULL'];
 
-interface MatchScreenProps { 
-    config: any; 
-    onBackToSetup: () => void; 
-    onMatchComplete?: (matchData: any) => void; 
-    lang: Language; 
+interface MatchScreenProps {
+    config: any;
+    onBackToSetup: () => void;
+    onMatchComplete?: (matchData: any) => void;
+    onRematch?: () => void;
+    lang: Language;
 }
 
-export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: MatchScreenProps) {
+export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch, lang }: MatchScreenProps) {
   const txt = t[lang];
   const isAsync = config.gameMode === 'challenge' && !!config.challengeCode;
   const role = config.localRole || 'host'; 
@@ -362,6 +438,24 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
   const [mathInput, setMathInput] = useState('');
 
   const [showRulesOverlay, setShowRulesOverlay] = useState<boolean>(['practice', 'career'].includes(config.gameMode) && !config.resumeState);
+  const [tvMode, setTvMode] = useState(false);
+
+  // Tutorial: show once per mode
+  const getTutorialKey = (): TutorialKey | null => {
+      if (config.gameMode === 'x01') return 'x01';
+      if (config.gameMode === 'career') return 'career';
+      if (config.gameMode === 'challenge') return 'challenge';
+      if (config.gameMode === 'practice') {
+          const pt = config.practiceType;
+          if (pt === 'atc' || pt === 'around') return 'practice_atc';
+          if (pt === 'bobs27') return 'practice_bobs';
+          if (pt === '121') return 'practice_121';
+          if (pt === 'hunter') return 'practice_hunter';
+      }
+      return null;
+  };
+  const tutKey = getTutorialKey();
+  const [showTutorial, setShowTutorial] = useState(() => tutKey ? shouldShowTutorial(tutKey) : false);
   const [fullHeatmapData, setFullHeatmapData] = useState<Record<string, {hits: number, throws: number}>>({});
 
   useEffect(() => {
@@ -545,9 +639,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
                   const currentMaxOut = userDocSnap.exists() ? (userDocSnap.data().highestCheckout || 0) : 0;
                   const newMaxOut = Math.max(currentMaxOut, p.highestCheckout); 
 
-                  await updateDoc(userRef, { 
-                      xp: increment(isWin ? (config.gameMode === 'career' ? 100 : 50) : 10), 
-                      weeklyXp: increment(isWin ? (config.gameMode === 'career' ? 100 : 50) : 10),
+                  const xpGained = isWin ? (config.gameMode === 'career' ? 100 : 50) : 10;
+
+                  await updateDoc(userRef, {
+                      xp: increment(xpGained),
+                      weeklyXp: increment(xpGained),
                       matchesWon: increment(isWin ? 1 : 0),
                       matchesPlayed: increment(1),
                       totalDarts: increment(p.totalDarts),
@@ -559,8 +655,15 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
                       checkoutSuccess: increment(p.checkoutSuccess),
                       first9Points: increment(p.first9Points),
                       first9Darts: increment(p.first9Darts),
-                      highestCheckout: newMaxOut, 
+                      highestCheckout: newMaxOut,
                   }).catch(err => console.error("Hiba az alap stats mentésnél:", err));
+
+                  // Klub XP növelése, ha a játékos klubban van
+                  const clubId = userDocSnap.exists() ? userDocSnap.data().clubId : null;
+                  if (clubId) {
+                      updateDoc(doc(db, 'clubs', clubId), { totalXp: increment(xpGained) })
+                        .catch(err => console.error("Klub XP hiba:", err));
+                  }
 
                   const matchRef = doc(collection(db, 'users', user.uid, 'matchHistory'));
                   setDoc(matchRef, {
@@ -918,7 +1021,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
     if ((input === '' && overridePts === undefined) || isLegWinner || isSetWinner || isMatchWinner || config.gameMode === 'practice' || asyncState !== 'playing') return;
     const pts = overridePts !== undefined ? overridePts : parseInt(input); 
     
-    if (pts > 180 || [163, 166, 169, 172, 173, 175, 176, 178, 179].includes(pts)) { 
+    if (!Number.isInteger(pts) || pts < 0 || pts > 180 || [163, 166, 169, 172, 173, 175, 176, 178, 179].includes(pts)) {
         triggerHaptic('bust'); alert(txt.impossible); setInput(''); return; 
     }
     
@@ -928,10 +1031,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
     let isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1) : (tScore < 0);
     const isOut = tScore === 0;
     
-    const usedDarts = isOut ? (pts <= 40 ? 1 : (pts <= 100 ? 2 : 3)) : 3;
+    // A körösszeg önmagában nem árulja el, hány nyíl kellett a kiszállóhoz.
+    const usedDarts = isOut && !activeP.isBot
+        ? Number(window.prompt(lang === 'hu' ? 'Hány nyílból szálltál ki ebben a körben? (1–3)' : 'How many darts did this checkout take? (1–3)', '3'))
+        : 3;
+    if (isOut && (!Number.isInteger(usedDarts) || usedDarts < 1 || usedDarts > 3)) return;
+    if (isOut && (pts > usedDarts * 60 || (config.checkout === 'double' && usedDarts === 1 && ![...Array(20)].some((_, i) => (i + 1) * 2 === pts) && pts !== 50))) return;
+    if (isOut && config.checkout === 'double' && !activeP.isBot && !window.confirm(lang === 'hu' ? 'Az utolsó nyíl dupla vagy belső bull volt?' : 'Was the final dart a double or inner bull?')) return;
     
-    if (activeP.currentLegDarts < 9) { 
-        setPlayers(prev => { const n = [...prev]; n[activePlayer].first9Points += pts; n[activePlayer].first9Darts += usedDarts; return n; }); 
+    if (!isBust && activeP.currentLegDarts < 9) {
+        setPlayers(prev => { const n = prev.map(pl => ({ ...pl })); n[activePlayer].first9Points += pts; n[activePlayer].first9Darts += usedDarts; return n; });
     }
 
     if (isBust) {
@@ -939,8 +1048,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
        setPlayers(prev => { 
            const np = prev.map(pl => ({ ...pl })); 
            const pl = np[activePlayer]; 
+           const dartsBeforeBust = pl.currentLegDarts;
            pl.history.push({ score: pl.score, dartsCount: 3, points: 0, roundDarts: [] }); 
            pl.totalDarts += 3; pl.currentLegDarts += 3; pl.lastVisit = 0; 
+           if (dartsBeforeBust < 9) pl.first9Darts += Math.min(3, 9 - dartsBeforeBust);
            
            syncTeamState(np, activePlayer);
            return np; 
@@ -983,7 +1094,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
         setActivePlayer(nextPlayerIdx()); 
     }  
     setInput('');
-  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore]);
+  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore, lang]);
 
   useEffect(() => { handleFastEnterRef.current = handleFastEnter; }, [handleFastEnter]);
   useEffect(() => { processDartRef.current = processDart; }, [processDart]);
@@ -1169,27 +1280,36 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
   const recObj = getCheckoutTable(safePlayer.score, 3 - currentDarts.length);
 
   return (
-    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-hidden tracking-tight relative pt-10">
-      <button onClick={() => window.open('/tv', '_blank')} className="absolute top-4 right-16 z-[999] p-2 text-slate-400 hover:text-cyan-500 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black uppercase">TV</button>
+    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight relative pt-10">
+      {tutKey && (
+          <button onClick={() => setShowTutorial(true)} className="absolute top-4 left-4 z-[999] p-2 text-slate-400 hover:text-amber-400 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black">?</button>
+      )}
+      <button onClick={() => window.open('/tv', '_blank')} className="absolute top-4 right-16 z-[999] p-2 text-slate-400 hover:text-cyan-500 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black uppercase leading-none">TV</button>
       <button onClick={onBackToSetup} className="absolute top-4 right-4 z-[999] p-2 text-slate-400 hover:text-rose-500 bg-slate-900 rounded-full border border-slate-800"><XMarkIcon className="h-6 w-6" /></button>
 
-      <div className={`w-full px-4 pb-2 grid grid-cols-2 gap-3 h-40 overflow-hidden`}>
-          {displayPlayers.map((pl) => (
-              <div key={pl.id} className={`rounded-3xl flex flex-col items-center justify-center border-2 transition-all duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${colBor}` : 'bg-slate-900/40 border-slate-800/50 opacity-60 scale-[0.97]'}`}>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">{pl.name}</span>
-                  <span className="text-[3.5rem] font-black text-white font-mono leading-none">{pl.score}</span>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">S:{pl.setsWon} L:{pl.legsWon}</span>
-              </div>
-          ))}
+      <div className={`w-full px-3 sm:px-6 pb-2 grid gap-2 sm:gap-3 mx-auto shrink-0 ${inputMode === 'board' ? 'max-w-[1100px]' : 'max-w-2xl'}`}
+           style={{ gridTemplateColumns: `repeat(${Math.min(displayPlayers.length, 4)}, 1fr)`, height: displayPlayers.length > 2 ? '8rem' : inputMode === 'detailed' ? '9rem' : '6rem' }}>
+          {displayPlayers.map((pl) => {
+              const pColStyle = COLOR_STYLES[pl.color] || COLOR_STYLES.emerald;
+              const pColTxt = pColStyle.split(' ')[0];
+              const pColBor = pColStyle.split(' ')[1];
+              return (
+                  <div key={pl.id} className={`rounded-3xl flex flex-col items-center justify-center border-2 transition-all duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/40 border-slate-800/50 opacity-50 scale-[0.97]'}`}>
+                      <span className={`text-[9px] sm:text-[11px] font-black uppercase tracking-widest truncate w-full text-center px-1 ${activePlayer === pl.id ? pColTxt : 'text-slate-500'}`}>{pl.name}</span>
+                      <span className="text-5xl sm:text-6xl font-black text-white font-mono leading-none">{pl.score}</span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">S:{pl.setsWon} L:{pl.legsWon}</span>
+                  </div>
+              );
+          })}
       </div>
 
-      <div className="p-4 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full max-w-md mx-auto h-full flex flex-col relative">
-        
-        {/* --- A FIX MAGASSÁGÚ, NEM UGRÁLÓ JAVASLAT SÁV --- */}
-        <div className="w-full min-h-[50px] flex items-center justify-center mb-4 transition-all">
+      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full mx-auto flex flex-col relative shrink-0 ${inputMode === 'board' ? 'max-w-[1100px] pt-2 pb-2' : 'max-w-2xl pt-3 pb-6 sm:pb-4'}`}>
+
+        {/* Checkout suggestion bar */}
+        <div className={`w-full flex items-center justify-center transition-all ${recObj || inputMode === 'detailed' ? 'min-h-[46px] mb-3' : 'min-h-0 mb-0'}`}>
              {recObj ? (
-                <div className={`${recObj.isSmart && checkoutStrategy === 'pro' ? 'bg-[#b655ff]/10 border-[#b655ff]/30 text-[#b655ff]' : `bg-cyan-500/10 border-cyan-500/20 text-cyan-400`} px-6 py-2 rounded-xl border flex items-center justify-center w-full shadow-inner`}>
-                    <span className="font-mono text-[14px] font-black tracking-[0.2em] uppercase italic w-full text-center">
+                <div className={`${recObj.isSmart && checkoutStrategy === 'pro' ? 'bg-[#b655ff]/10 border-[#b655ff]/30 text-[#b655ff]' : `bg-cyan-500/10 border-cyan-500/20 text-cyan-400`} px-4 sm:px-6 py-2 rounded-xl border flex items-center justify-center w-full shadow-inner`}>
+                    <span className="font-mono text-sm sm:text-base font-black tracking-[0.15em] sm:tracking-[0.2em] uppercase italic w-full text-center">
                         🎯 {recObj.text}
                     </span>
                     {recObj.isSmart && safePlayer.score <= 170 && (
@@ -1199,59 +1319,101 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
                     )}
                 </div>
              ) : (
-                <div className="h-full w-full"></div> 
+                <div className="h-full w-full" />
              )}
         </div>
 
-        <div className="flex gap-2 w-full mb-4 shrink-0">
-            <button onClick={() => setInputMode('detailed')} className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase border ${inputMode === 'detailed' ? 'bg-slate-700 text-white' : 'bg-slate-950 text-slate-600'}`}>Pro</button>
-            <button onClick={() => setInputMode('board')} className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase border ${inputMode === 'board' ? 'bg-slate-700 text-white' : 'bg-slate-950 text-slate-600'}`}>Tábla</button>
-            <button onClick={() => setInputMode('fast')} className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase border ${inputMode === 'fast' ? 'bg-slate-700 text-white' : 'bg-slate-950 text-slate-600'}`}>Fast</button>
+        {/* Mode selector */}
+        <div className="flex gap-2 w-full mb-3 shrink-0">
+            <button onClick={() => setInputMode('detailed')} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'detailed' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Pro</button>
+            <button onClick={() => setInputMode('board')}    className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Tábla</button>
+            <button onClick={() => setInputMode('fast')}     className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast'     ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Fast</button>
         </div>
 
+        {/* ── PRO / DETAILED INPUT ── */}
         {inputMode === 'detailed' && (
-            <div className="flex flex-col gap-3">
-            <div className="flex justify-between gap-2 h-12 shrink-0 mb-3">
+            <div className="flex flex-col gap-2 sm:gap-3">
+            {/* Dart slots */}
+            <div className="flex justify-between gap-2 h-12 sm:h-14 shrink-0">
                 {[0, 1, 2].map((i) => (
-                    <div key={i} className={`flex-1 rounded-xl border flex items-center justify-center font-mono text-lg font-black ${currentDarts[i] ? `bg-slate-800 text-white shadow-lg` : 'bg-slate-950/50 border-slate-800 text-slate-800'}`}>
+                    <div key={i} className={`flex-1 rounded-xl border flex items-center justify-center font-mono text-lg sm:text-xl font-black ${currentDarts[i] ? `bg-slate-800 text-white shadow-lg` : 'bg-slate-950/50 border-slate-800 text-slate-800'}`}>
                         {currentDarts[i] ? ((currentDarts[i].mult === 3 ? 'T' : currentDarts[i].mult === 2 ? 'D' : '') + (currentDarts[i].val === 0 ? 'M' : currentDarts[i].val)) : ''}
                     </div>
                 ))}
-                <button onClick={handleUndo} className="w-14 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400"><BackspaceIcon className="h-5 w-5" /></button>
+                <button onClick={handleUndo} className="w-14 sm:w-16 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
+                    <BackspaceIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                </button>
             </div>
+            {/* Multiplier */}
             <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setActiveMult(1)} className={`h-11 rounded-xl font-black text-[9px] ${activeMult === 1 ? 'bg-white text-black' : 'bg-slate-800 text-slate-500'}`}>SINGLE</button>
-                <button onClick={() => setActiveMult(2)} className={`h-11 rounded-xl font-black text-[9px] ${activeMult === 2 ? `bg-emerald-500 text-black` : 'bg-slate-800 text-slate-500'}`}>DOUBLE</button>
-                <button onClick={() => setActiveMult(3)} className={`h-11 rounded-xl font-black text-[9px] ${activeMult === 3 ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>TRIPLE</button>
+                <button onClick={() => setActiveMult(1)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 1 ? 'bg-white text-black' : 'bg-slate-800 text-slate-500'}`}>SINGLE</button>
+                <button onClick={() => setActiveMult(2)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 2 ? `bg-emerald-500 text-black` : 'bg-slate-800 text-slate-500'}`}>DOUBLE</button>
+                <button onClick={() => setActiveMult(3)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 3 ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>TRIPLE</button>
             </div>
-            <div className="grid grid-cols-5 gap-2">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((num) => (<button key={num} onClick={() => handleDartPress(num)} className="h-10 bg-slate-800/60 rounded-lg font-black text-base active:scale-90">{num}</button>))}
-                <button onClick={() => handleDartPress(25)} disabled={activeMult === 3} className={`h-10 rounded-lg font-black text-[9px] col-span-3 ${activeMult === 3 ? 'opacity-40' : 'bg-indigo-500/10 text-indigo-400'}`}>BULL</button>
-                <button onClick={() => handleDartPress(0)} className="h-10 bg-slate-800/60 rounded-lg font-black text-[9px] col-span-2 text-slate-500 uppercase">Miss</button>
-            </div>
-            </div>
-        )}
-
-        {inputMode === 'board' && (
-            <div className="flex flex-col gap-2 flex-1 overflow-hidden pb-2">
-            <div className="flex-1 w-full flex items-center justify-center relative">
-                <InteractiveDartboard onDartSelect={(val, mult) => handleDartPress(val, mult)} />
-            </div>
-            </div>
-        )}
-
-        {inputMode === 'fast' && (
-            <div className="flex flex-col gap-4">
-            <div className="flex gap-2">{quickButtons.map(qb => (<button key={qb} onClick={() => handleFastEnter(qb)} className="flex-1 bg-slate-800/80 text-emerald-400 border border-slate-700 h-10 rounded-xl font-mono font-black text-sm">{qb}</button>))}</div>
-            <div className="flex justify-between items-center px-4 h-14 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner">
-                <span className="font-mono text-4xl font-black text-white">{input || (isBotTurn ? '' : '0')}</span>
-                <button onClick={handleUndo} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8"/></button>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((num) => (
-                    <button key={num} onClick={() => { triggerHaptic('tap'); if(asyncState === 'playing') setInput(input + num) }} className={`h-14 rounded-xl bg-slate-800/40 text-2xl font-black text-slate-200 active:scale-95 ${num === 0 ? 'col-span-2' : ''}`}>{num}</button>
+            {/* Numbers 1-20 + 0 */}
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(n => (
+                    <button key={n} onClick={() => handleDartPress(n)}
+                        className="h-10 sm:h-12 bg-slate-800/60 rounded-lg font-black text-sm sm:text-base active:scale-90 transition-transform">{n}</button>
                 ))}
-                <button onClick={() => handleFastEnter()} className={`h-14 rounded-xl ${colBg} text-slate-950 text-[10px] font-black uppercase active:scale-95`}>Enter</button>
+                <button onClick={() => handleDartPress(0)}
+                    className="h-10 sm:h-12 bg-slate-900 rounded-lg font-black text-sm text-slate-600 active:scale-90 transition-transform border border-slate-800">0</button>
+                <button onClick={() => handleDartPress(25)} disabled={activeMult === 3}
+                    className={`h-10 sm:h-12 rounded-lg font-black text-xs col-span-3 transition-all ${activeMult === 3 ? 'opacity-40 bg-slate-900' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'}`}>BULL</button>
+                <button onClick={() => handleDartPress(0)}
+                    className="h-10 sm:h-12 bg-slate-800/30 rounded-lg font-black text-[10px] col-span-1 text-slate-600 uppercase active:scale-90 border border-slate-800">Miss</button>
+            </div>
+            </div>
+        )}
+
+        {/* ── BOARD INPUT ── */}
+        {inputMode === 'board' && (
+            <div className="flex flex-col gap-2 pb-2">
+            {/* Pending dart slots above board */}
+            <div className="flex gap-2 shrink-0">
+                {[0,1,2].map(i=>{
+                    const d=currentDarts[i];
+                    return <div key={i} className={`flex-1 h-10 rounded-xl border flex items-center justify-center font-mono font-black text-sm transition-all ${d?'bg-slate-800 text-white border-slate-600 shadow-lg':'bg-slate-950/50 border-slate-800 text-slate-800'}`}>
+                        {d?((d.mult===3?'T':d.mult===2?'D':'')+(d.val===0?'M':d.val)):'' }
+                    </div>;
+                })}
+                <button onClick={handleUndo} className="w-12 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
+                    <BackspaceIcon className="h-5 w-5"/>
+                </button>
+            </div>
+            <div className="w-full flex items-center justify-center relative">
+                <InteractiveDartboard
+                    onDartSelect={(val, mult) => handleDartPress(val, mult)}
+                    currentDarts={currentDarts}
+                    playerColor={safePlayer?.color}
+                />
+            </div>
+            </div>
+        )}
+
+        {/* ── FAST INPUT ── */}
+        {inputMode === 'fast' && (
+            <div className="flex flex-col gap-2 sm:gap-3">
+            {/* Quick score buttons */}
+            <div className="flex gap-2">
+                {quickButtons.map(qb => (
+                    <button key={qb} onClick={() => handleFastEnter(qb)}
+                        className="flex-1 bg-slate-800/80 text-emerald-400 border border-slate-700 h-10 sm:h-12 rounded-xl font-mono font-black text-sm sm:text-base active:scale-95 transition-transform">{qb}</button>
+                ))}
+            </div>
+            {/* Score display */}
+            <div className="flex justify-between items-center px-4 sm:px-6 h-14 sm:h-16 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner">
+                <span className="font-mono text-4xl sm:text-5xl font-black text-white">{input || (isBotTurn ? '' : '0')}</span>
+                <button onClick={handleUndo} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8 sm:h-9 sm:w-9"/></button>
+            </div>
+            {/* Numpad */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {[1,2,3,4,5,6,7,8,9,0].map(n => (
+                    <button key={n} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing') setInput(input+n); }}
+                        className={`h-14 sm:h-16 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
+                ))}
+                <button onClick={() => handleFastEnter()}
+                    className={`h-14 sm:h-16 rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs font-black uppercase active:scale-95 transition-transform`}>Enter</button>
             </div>
             </div>
         )}
@@ -1329,22 +1491,124 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, lang }: Ma
 
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 w-full max-w-sm shrink-0 mt-auto z-10">
                 <button onClick={handleExit} className="flex-1 h-14 sm:h-16 rounded-2xl bg-slate-800 text-white text-sm sm:text-base font-black uppercase shadow-xl hover:bg-slate-700 transition-colors">{txt.back}</button>
-                
+
                 {config.tournamentId || config.gameMode === 'career' ? (
                     <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className={`flex-1 h-14 sm:h-16 rounded-2xl bg-[#b655ff] text-white text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2`}>
                         Következő <ForwardIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                     </button>
                 ) : (
                     <>
+                        {onRematch && (
+                            <button onClick={onRematch} className="flex-1 h-14 sm:h-16 rounded-2xl bg-emerald-500 text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                                <ArrowPathIcon className="h-5 w-5 sm:h-6 sm:w-6" /> Újrajátszás
+                            </button>
+                        )}
                         <button onClick={handleShareMatch} className={`flex-1 h-14 sm:h-16 rounded-2xl ${colBg} text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2`}>
                             <ShareIcon className="h-5 w-5 sm:h-6 sm:w-6" /> Megosztás
-                        </button>
-                        <button onClick={handleCSVExport} className="flex-1 h-14 sm:h-16 rounded-2xl bg-cyan-500 text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                            CSV Letöltés
                         </button>
                     </>
                 )}
             </div>
+        </div>
+      )}
+
+      {/* ── Tutorial overlay (shown once per mode) ───────────────────────── */}
+      {showTutorial && tutKey && (
+          <TutorialOverlay tutorialKey={tutKey} onClose={() => setShowTutorial(false)} />
+      )}
+
+      {/* ── TV Mode fullscreen dartboard overlay ─────────────────────────── */}
+      {tvMode && (
+        <div className="fixed inset-0 z-[300] bg-[#050508] flex flex-col select-none">
+          {/* Close */}
+          <button onClick={() => setTvMode(false)}
+              className="absolute top-4 right-4 z-10 p-2.5 bg-slate-800 rounded-full border border-slate-700 hover:bg-slate-700 transition-colors">
+              <XMarkIcon className="h-6 w-6 text-white" />
+          </button>
+
+          {/* Score header */}
+          <div className="flex items-stretch border-b border-slate-800 shrink-0">
+              {players.map((pl) => {
+                  const isAct = pl.id === activePlayer;
+                  const pCol = COLOR_STYLES[pl.color]?.split(' ')[0] || 'text-emerald-400';
+                  return (
+                      <div key={pl.id} className={`flex-1 py-4 text-center transition-all ${isAct ? 'opacity-100 bg-slate-900/60' : 'opacity-30'}`}>
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${pCol}`}>{pl.name}</p>
+                          <p className="text-6xl sm:text-8xl font-black text-white font-mono leading-none mt-1">{pl.score}</p>
+                          <p className="text-[10px] text-slate-500 font-bold mt-1">S:{pl.setsWon} L:{pl.legsWon}</p>
+                          <div className="flex justify-center gap-2 mt-2">
+                              {[0,1,2].map(di => {
+                                  const d = isAct ? currentDarts[di] : null;
+                                  return (
+                                      <span key={di} className={`h-7 w-12 rounded-lg border font-mono text-xs font-black flex items-center justify-center ${d ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-900 border-slate-800 text-slate-700'}`}>
+                                          {d ? `${d.mult>1?(d.mult===3?'T':'D'):''}${d.val===0?'M':d.val===25?'B':d.val}` : '—'}
+                                      </span>
+                                  );
+                              })}
+                          </div>
+                      </div>
+                  );
+              })}
+          </div>
+
+          {/* Dartboard with live dart markers */}
+          <div className="flex-1 flex items-center justify-center p-4">
+              <svg viewBox="0 0 300 300" className="h-full w-full" style={{ maxHeight: '70vmin', maxWidth: '70vmin' }}>
+                  <circle cx="150" cy="150" r="149" fill="#050508" />
+                  <circle cx="150" cy="150" r="148" fill="#0b0d11" />
+                  {DARTBOARD_ORDER.map((num, i) => {
+                      const sa = i * 18 - 9, ea = sa + 18;
+                      const isEven = i % 2 === 0;
+                      const segBase = isEven ? '#1a1a1a' : '#d4d4d4';
+                      const tp = polarToCartesian(150, 150, 142, sa + 9);
+                      return (
+                          <g key={num}>
+                              <path d={describeArc(150,150,15,80,sa,ea)}   fill={segBase}                            stroke="#050508" strokeWidth="0.5" />
+                              <path d={describeArc(150,150,80,90,sa,ea)}   fill={isEven ? '#e11d48' : '#10b981'}    stroke="#050508" strokeWidth="0.5" />
+                              <path d={describeArc(150,150,90,125,sa,ea)}  fill={segBase}                            stroke="#050508" strokeWidth="0.5" />
+                              <path d={describeArc(150,150,125,135,sa,ea)} fill={isEven ? '#e11d48' : '#10b981'}    stroke="#050508" strokeWidth="0.5" />
+                              <text x={tp.x} y={tp.y} fill="#64748b" fontSize="10" fontWeight="900"
+                                  textAnchor="middle" alignmentBaseline="middle"
+                                  transform={`rotate(${sa+9+90} ${tp.x} ${tp.y})`}>{num}</text>
+                          </g>
+                      );
+                  })}
+                  <circle cx="150" cy="150" r="15"   fill="#10b981" stroke="#050508" strokeWidth="0.5" />
+                  <circle cx="150" cy="150" r="6.35" fill="#e11d48" stroke="#050508" strokeWidth="0.5" />
+
+                  {/* Dart markers for current turn */}
+                  {currentDarts.map((d, di) => {
+                      const pos = tvDartCoord(d.val, d.mult, di);
+                      const pCol = safePlayer?.color === 'rose' ? '#fb7185' : safePlayer?.color === 'cyan' ? '#22d3ee' : safePlayer?.color === 'amber' ? '#fbbf24' : safePlayer?.color === 'purple' ? '#b655ff' : '#34d399';
+                      return (
+                          <g key={di}>
+                              {/* Shadow */}
+                              <circle cx={pos.x+1} cy={pos.y+1} r="7" fill="black" opacity="0.5" />
+                              {/* Dart body */}
+                              <circle cx={pos.x} cy={pos.y} r="7" fill={pCol} stroke="white" strokeWidth="1.5" opacity="0.95" />
+                              {/* Index */}
+                              <text x={pos.x} y={pos.y+0.5} fill="black" fontSize="8" fontWeight="900"
+                                  textAnchor="middle" alignmentBaseline="middle">{di + 1}</text>
+                          </g>
+                      );
+                  })}
+
+                  {/* Subtle crosshair for aiming reference */}
+                  {currentDarts.length === 0 && (
+                      <g opacity="0.15">
+                          <line x1="140" y1="150" x2="160" y2="150" stroke="#64748b" strokeWidth="1" />
+                          <line x1="150" y1="140" x2="150" y2="160" stroke="#64748b" strokeWidth="1" />
+                      </g>
+                  )}
+              </svg>
+          </div>
+
+          {/* Bottom label */}
+          <div className="text-center pb-3 shrink-0">
+              <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.3em]">
+                  {currentDarts.length === 0 ? 'Várakozás a dobásra...' : `${currentDarts.length}/3 nyíl bedobva`}
+              </p>
+          </div>
         </div>
       )}
     </div>
