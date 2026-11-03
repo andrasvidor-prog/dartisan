@@ -48,7 +48,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
     useEffect(() => {
         const fetchCoachData = async () => {
             const user = auth.currentUser;
-            if (user) {
+            if (user && !user.isAnonymous) {
                 const docSnap = await getDoc(doc(db, 'users', user.uid, 'coach', 'plan'));
                 if (docSnap.exists()) {
                     const data = docSnap.data();
@@ -64,7 +64,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
 
     const saveCoachData = async (newGoal: GoalType | null, newCompleted: number[], newCustom: any[]) => {
         const user = auth.currentUser;
-        if (user) {
+        if (user && !user.isAnonymous) {
             await setDoc(doc(db, 'users', user.uid, 'coach', 'plan'), { goal: newGoal, completedDays: newCompleted, customTasks: newCustom }, { merge: true });
         }
         setGoal(newGoal);

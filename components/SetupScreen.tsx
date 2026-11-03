@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously } from 'firebase/auth';
 import { 
     XMarkIcon, PlusIcon, ComputerDesktopIcon, UserIcon, UserCircleIcon, 
     SpeakerWaveIcon, SpeakerXMarkIcon, PaperAirplaneIcon, 
@@ -188,10 +188,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
     if (sMatch) setSavedMatch(JSON.parse(sMatch));
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-        if (user) {
+        if (user && !user.isAnonymous) {
             const docRef = doc(db, 'users', user.uid);
             const docSnap = await getDoc(docRef);
-            let userData = docSnap.exists() ? docSnap.data() : null;
+            const userData = docSnap.exists() ? docSnap.data() : null;
 
             const displayName = user.displayName || user.email?.split('@')[0] || 'Player';
             
@@ -230,13 +230,13 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   }, []);
 
   useEffect(() => {
-      if (tab !== 'leagues') return;
-      const q = query(collection(db, 'users'), orderBy('weeklyXp', 'desc'), limit(50));
+      if (tab !== 'leagues' || !currentUser) return;
+      const q = query(collection(db, 'publicProfiles'), orderBy('weeklyXp', 'desc'), limit(50));
       const unsub = onSnapshot(q, (snap) => {
           setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       }, (err) => { console.error("Ranglista hiba:", err); });
       return () => unsub();
-  }, [tab]);
+  }, [tab, currentUser]);
 
   useEffect(() => {
     if (!hostedCode) return;
@@ -343,10 +343,18 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       } finally { setIsLoggingIn(false); }
   };
 
+  // Online rooms need a Firebase identity even when the player has no profile.
+  // Anonymous identities are not shown as registered Dartisan accounts.
+  const ensureOnlineIdentity = async () => {
+      await auth.authStateReady();
+      return auth.currentUser || (await signInAnonymously(auth)).user;
+  };
+
   const handleHostMatch = async () => {
       setIsCreatingMatch(true); 
       try { 
-          const code = `DART-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+          const user = await ensureOnlineIdentity();
+          const code = `DART-${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`;
           const roomRef = doc(db, 'matches', code);
           await runTransaction(db, async transaction => {
             if ((await transaction.get(roomRef)).exists()) throw new Error('Room code collision');
@@ -355,7 +363,9 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
               config: { startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout }, 
               state: { currentLeg: 1, currentSet: 1, hostDarts: null, guestDarts: null, hostSetsWon: 0, guestSetsWon: 0, hostLegsWon: 0, guestLegsWon: 0, winner: null }, 
               hostName: players[0].name, 
+              hostUid: user.uid,
               guestName: null, 
+              guestUid: null,
               createdAt: serverTimestamp()
             });
           });
@@ -370,10 +380,11 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   const handleCancelHost = async () => {
       if (!hostedCode) return;
       try {
+          const user = await ensureOnlineIdentity();
           const roomRef = doc(db, 'matches', hostedCode);
           await runTransaction(db, async transaction => {
               const snapshot = await transaction.get(roomRef);
-              if (snapshot.exists() && snapshot.data().status === 'waiting') transaction.delete(roomRef);
+              if (snapshot.exists() && snapshot.data().status === 'waiting' && snapshot.data().hostUid === user.uid) transaction.delete(roomRef);
           });
           setHostedCode(null);
       } catch (error) {
@@ -386,13 +397,15 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       if (challengeCode.length < 5) return; 
       setIsJoiningMatch(true);
       try {
+          const user = await ensureOnlineIdentity();
           const roomRef = doc(db, 'matches', challengeCode);
           const data = await runTransaction(db, async transaction => {
               const matchSnap = await transaction.get(roomRef);
               if (!matchSnap.exists()) throw new Error('room-not-found');
               const room = matchSnap.data();
               if (room.status !== 'waiting') throw new Error('room-unavailable');
-              transaction.update(roomRef, { status: 'playing', guestName: players[0].name });
+              if (room.hostUid === user.uid) throw new Error('room-unavailable');
+              transaction.update(roomRef, { status: 'playing', guestName: players[0].name, guestUid: user.uid });
               return room;
           });
           onStart({

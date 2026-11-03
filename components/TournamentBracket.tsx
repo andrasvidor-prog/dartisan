@@ -114,7 +114,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
         const groups: TournamentPlayer[][] = Array.from({length: numGroups}, () => []);
         config.players.forEach((p, i) => { groups[i % numGroups].push(p); });
 
-        let newGroupMatches: Match[] = [];
+        const newGroupMatches: Match[] = [];
         groups.forEach((group, gIndex) => {
             const groupId = `Group_${gIndex === 0 ? 'A' : 'B'}`;
             for (let i = 0; i < group.length; i++) {
@@ -185,7 +185,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
         const paddedPlayers = [...participants];
         while (paddedPlayers.length < numSlots) { paddedPlayers.push(null as any); }
 
-        let initialMatches: Match[] = [];
+        const initialMatches: Match[] = [];
         for (let r = 0; r < rounds; r++) {
             const matchesInRound = Math.pow(2, rounds - r - 1);
             for (let m = 0; m < matchesInRound; m++) {
@@ -226,7 +226,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
         triggerHaptic();
         const p1Wins = qScore1 >= (config.setsToWin > 1 ? config.setsToWin : config.legsToWin);
         const p2Wins = qScore2 >= (config.setsToWin > 1 ? config.setsToWin : config.legsToWin);
-        let winnerId = p1Wins && quickEntryMatch.player1 ? quickEntryMatch.player1.id : (p2Wins && quickEntryMatch.player2 ? quickEntryMatch.player2.id : null);
+        const winnerId = p1Wins && quickEntryMatch.player1 ? quickEntryMatch.player1.id : (p2Wins && quickEntryMatch.player2 ? quickEntryMatch.player2.id : null);
         
         if (quickEntryMatch.groupId) handleGroupMatchComplete(quickEntryMatch.id, qScore1, qScore2, winnerId);
         else handleKnockoutMatchComplete(quickEntryMatch.id, qScore1, qScore2, winnerId);

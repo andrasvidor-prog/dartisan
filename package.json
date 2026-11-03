@@ -4,26 +4,29 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:rules": "firebase emulators:exec --project dartisan-rules-test --only firestore \"node --test tests/firestore.rules.test.mjs\""
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@heroicons/react": "^2.2.0",
     "autoprefixer": "^10.5.0",
     "firebase": "^12.10.0",
-    "next": "16.1.6",
-    "postcss": "^8.5.10",
+    "next": "^16.4.5",
+    "postcss": "^8.5.32",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "^16.4.5",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
   }

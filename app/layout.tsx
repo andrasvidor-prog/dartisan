@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import "@fontsource-variable/inter";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
 
 // PWA és Mobil optimalizált metaadatok
 export const metadata: Metadata = {
@@ -42,7 +40,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple.svg" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body className={`${inter.className} bg-[#0b0d11] text-slate-200 antialiased overflow-hidden`}>
+      <body className="bg-[#0b0d11] text-slate-200 antialiased overflow-hidden">
         {children}
       </body>
     </html>

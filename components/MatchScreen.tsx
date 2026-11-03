@@ -11,7 +11,8 @@ import {
 
 import type { Language } from '@/app/page';
 import { db, auth } from '../firebase';
-import { doc, updateDoc, onSnapshot, increment, setDoc, getDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, onSnapshot, increment, setDoc, getDoc, collection, writeBatch, runTransaction } from 'firebase/firestore';
+import { publicProfileData } from '../lib/publicProfile';
 import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
 
 export type Dart = { val: number; mult: number };
@@ -88,7 +89,7 @@ const DartboardHeatmap = ({ heatmapData }: { heatmapData: Record<string, { hits:
     const getHeatColor = (target: string, isBlackOrGreen: boolean, isDoubleOrTreble: boolean) => {
         const hits = heatmapData[target]?.hits || 0;
         if (hits === 0) {
-            let baseColor = isBlackOrGreen ? (isDoubleOrTreble ? '#2eac6d' : '#14171f') : (isDoubleOrTreble ? '#e03e3e' : '#e6e8eb');
+            const baseColor = isBlackOrGreen ? (isDoubleOrTreble ? '#2eac6d' : '#14171f') : (isDoubleOrTreble ? '#e03e3e' : '#e6e8eb');
             if (target === '25') return '#2eac6d'; 
             if (target === '50') return '#e03e3e';
             return baseColor;
@@ -362,6 +363,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   
   const [asyncState, setAsyncState] = useState<'playing' | 'waiting_leg' | 'waiting_match'>('playing');
   const [fbSyncData, setFbSyncData] = useState<any>(null);
+  const resolvedLegRef = useRef(0);
+  const resolvingLegRef = useRef(0);
   
   const [players, setPlayers] = useState<PlayerData[]>(() => {
     if (config.resumeState) {
@@ -405,7 +408,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           }
 
           const user = auth.currentUser;
-          if (user) {
+          if (user && !user.isAnonymous) {
               const docSnap = await getDoc(doc(db, 'users', user.uid));
               if (docSnap.exists() && docSnap.data().settings) {
                   const s = docSnap.data().settings;
@@ -461,7 +464,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   useEffect(() => {
       const fetchHeatmap = async () => {
           const user = auth.currentUser;
-          if (!user) return;
+          if (!user || user.isAnonymous) return;
           try {
               const setupId = config.dartSetupId || 'default';
               const docSnap = await getDoc(doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId));
@@ -511,6 +514,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   const handleFastEnterRef = useRef<((pts?: number) => void) | null>(null);
   const processDartRef = useRef<((val: number, mult: number) => void) | null>(null);
+  const statsSavedRef = useRef(false);
 
   useEffect(() => {
     const currentPlayer = players[activePlayer];
@@ -627,10 +631,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync]);
 
   useEffect(() => {
-      if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1) {
+      if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
+          statsSavedRef.current = true;
           const saveStats = async () => {
               const user = auth.currentUser;
-              if (user) {
+              if (user && !user.isAnonymous) {
                   const p = players[0]; 
                   const isWin = p.setsWon >= config.setsToWin;
                   const userRef = doc(db, "users", user.uid);
@@ -641,7 +646,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
                   const xpGained = isWin ? (config.gameMode === 'career' ? 100 : 50) : 10;
 
-                  await updateDoc(userRef, {
+                  const statsUpdate = {
                       xp: increment(xpGained),
                       weeklyXp: increment(xpGained),
                       matchesWon: increment(isWin ? 1 : 0),
@@ -656,7 +661,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                       first9Points: increment(p.first9Points),
                       first9Darts: increment(p.first9Darts),
                       highestCheckout: newMaxOut,
-                  }).catch(err => console.error("Hiba az alap stats mentésnél:", err));
+                  };
+                  const batch = writeBatch(db);
+                  batch.update(userRef, statsUpdate);
+                  batch.set(doc(db, 'publicProfiles', user.uid), publicProfileData(statsUpdate), { merge: true });
+                  try {
+                      await batch.commit();
+                  } catch (error) {
+                      console.error("Hiba az alap stats mentésnél:", error);
+                      return;
+                  }
 
                   // Klub XP növelése, ha a játékos klubban van
                   const clubId = userDocSnap.exists() ? userDocSnap.data().clubId : null;
@@ -694,53 +708,68 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       if (!isAsync || !config.challengeCode) return;
       const unsubscribe = onSnapshot(doc(db, "matches", config.challengeCode), (docSnap: any) => {
           if (docSnap.exists()) {
-              const data = docSnap.data(); 
+              const data = docSnap.data();
+              const state = data.state;
               setFbSyncData(data);
-              setPlayers(prev => { 
-                  const np = [...prev]; 
-                  if (np[1]) { np[1].legsWon = data.state[`${oppRole}LegsWon`] || 0; np[1].setsWon = data.state[`${oppRole}SetsWon`] || 0; } 
-                  return np; 
-              });
-              if (asyncState === 'waiting_leg' && data.state[`${role}Darts`] !== null && data.state[`${oppRole}Darts`] !== null) {
-                  evaluateAsyncLeg(data);
+              setPlayers(prev => prev.map((player, index) => {
+                  const playerRole = index === 0 ? role : oppRole;
+                  return { ...player, legsWon: state[`${playerRole}LegsWon`] || 0, setsWon: state[`${playerRole}SetsWon`] || 0 };
+              }));
+
+              const resolved = state.resolvedLeg;
+              if (resolved && resolved.number > resolvedLegRef.current) {
+                  resolvedLegRef.current = resolved.number;
+                  setAsyncState('playing');
+                  if (resolved.matchEnded) setIsMatchWinner(true);
+                  else if (resolved.setEnded) setIsSetWinner(true);
+                  else setIsLegWinner(true);
+              } else if (role === 'host' && state.hostDarts !== null && state.guestDarts !== null && !state.winner && resolvingLegRef.current !== state.currentLeg) {
+                  resolvingLegRef.current = state.currentLeg;
+                  resolveAsyncLeg(state).catch(error => {
+                      resolvingLegRef.current = 0;
+                      console.error('Online leg resolution failed:', error);
+                  });
               }
           }
       });
       return () => unsubscribe();
-  }, [isAsync, config.challengeCode, asyncState, role, oppRole]);
+  }, [isAsync, config.challengeCode, role, oppRole, config.legsToWin, config.setsToWin]);
 
-  const evaluateAsyncLeg = async (data: any) => {
-      const myDarts = data.state[`${role}Darts`]; 
-      const oppDarts = data.state[`${oppRole}Darts`];
-      let winnerIdx = 0; 
-      if (oppDarts < myDarts) winnerIdx = 1; 
-      else if (oppDarts === myDarts) winnerIdx = role === 'host' ? 0 : 1; 
-
-      setPlayers(prev => {
-          const np = prev.map(pl => ({ ...pl })); 
-          np[winnerIdx].legsWon += 1;
-          if (np[winnerIdx].legsWon >= config.legsToWin) { 
-              np[winnerIdx].legsWon = 0; 
-              np[winnerIdx].setsWon += 1; 
-              if (np[winnerIdx].setsWon >= config.setsToWin) { setIsMatchWinner(true); setAsyncState('playing'); } 
-              else { setIsSetWinner(true); setAsyncState('playing'); } 
-          } else { setIsLegWinner(true); setAsyncState('playing'); }
-          return np;
-      });
-
-      if (role === 'host') {
-          const newHostLegs = winnerIdx === 0 ? (data.state.hostLegsWon || 0) + 1 : (data.state.hostLegsWon || 0);
-          const newGuestLegs = winnerIdx === 1 ? (data.state.guestLegsWon || 0) + 1 : (data.state.guestLegsWon || 0);
-          await updateDoc(doc(db, "matches", config.challengeCode!), { 
-              [`state.hostDarts`]: null, [`state.guestDarts`]: null, [`state.hostLegsWon`]: newHostLegs, [`state.guestLegsWon`]: newGuestLegs, [`state.currentLeg`]: data.state.currentLeg + 1 
+  const resolveAsyncLeg = async (observedState: any) => {
+      await runTransaction(db, async transaction => {
+          const roomRef = doc(db, 'matches', config.challengeCode!);
+          const snapshot = await transaction.get(roomRef);
+          if (!snapshot.exists()) return;
+          const state = snapshot.data().state;
+          if (state.currentLeg !== observedState.currentLeg || state.hostDarts === null || state.guestDarts === null || state.winner) return;
+          const winner = state.hostDarts <= state.guestDarts ? 'host' : 'guest';
+          let hostLegsWon = (state.hostLegsWon || 0) + (winner === 'host' ? 1 : 0);
+          let guestLegsWon = (state.guestLegsWon || 0) + (winner === 'guest' ? 1 : 0);
+          let hostSetsWon = state.hostSetsWon || 0;
+          let guestSetsWon = state.guestSetsWon || 0;
+          const setEnded = (winner === 'host' ? hostLegsWon : guestLegsWon) >= config.legsToWin;
+          if (setEnded) {
+              if (winner === 'host') hostSetsWon += 1;
+              else guestSetsWon += 1;
+              hostLegsWon = 0;
+              guestLegsWon = 0;
+          }
+          const matchEnded = (winner === 'host' ? hostSetsWon : guestSetsWon) >= config.setsToWin;
+          transaction.update(roomRef, {
+              'state.hostDarts': null, 'state.guestDarts': null,
+              'state.hostLegsWon': hostLegsWon, 'state.guestLegsWon': guestLegsWon,
+              'state.hostSetsWon': hostSetsWon, 'state.guestSetsWon': guestSetsWon,
+              'state.currentLeg': state.currentLeg + 1,
+              'state.resolvedLeg': { number: state.currentLeg, winner, setEnded, matchEnded },
+              'state.winner': matchEnded ? winner : null,
           });
-      }
+      });
   };
 
   const finishAsyncLeg = async (totalDartsUsed: number) => {
       setAsyncState('waiting_leg');
       try { await updateDoc(doc(db, "matches", config.challengeCode!), { [`state.${role}Darts`]: totalDartsUsed }); } 
-      catch (error) { console.error("Hiba a leg feltöltésekor:", error); }
+      catch (error) { setAsyncState('playing'); console.error("Hiba a leg feltöltésekor:", error); }
   };
 
   const announceScore = useCallback((scoreStr: string, is180: boolean = false, isBust: boolean = false) => {
@@ -897,8 +926,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             let validPts = 0;
             for (const d of newDarts) { tScore -= (d.val * d.mult); validPts += (d.val * d.mult); }
 
-            let isOut = ((tScore === 0 && mult === 2) || (tScore === 0 && val === 25 && mult === 2));
-            let isBust = (tScore < 0 || tScore === 1 || (tScore === 0 && !isOut));
+            const isOut = ((tScore === 0 && mult === 2) || (tScore === 0 && val === 25 && mult === 2));
+            const isBust = (tScore < 0 || tScore === 1 || (tScore === 0 && !isOut));
 
             setC121DartsLeft(prev => prev - 1);
 
@@ -960,7 +989,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         setPlayers(prev => { const n = [...prev]; n[activePlayer].first9Points += (val * mult); n[activePlayer].first9Darts += 1; return n; }); 
     }
 
-    let isOut = config.checkout === 'double' ? ((tScore === 0 && mult === 2) || (tScore === 0 && val === 25 && mult === 2)) : (tScore === 0);
+    const isOut = config.checkout === 'double' ? ((tScore === 0 && mult === 2) || (tScore === 0 && val === 25 && mult === 2)) : (tScore === 0);
     
     if (isOut && opened) { 
         setCurrentDarts([...currentDarts, { val, mult }]);
@@ -986,7 +1015,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         return; 
     }
 
-    let isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1 || (tScore === 0 && !isOut)) : (tScore < 0); 
+    const isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1 || (tScore === 0 && !isOut)) : (tScore < 0);
     if (isBust) {
       triggerHaptic('bust'); announceScore(validPts.toString(), false, true);
       setPlayers(prev => { 
@@ -1028,7 +1057,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     triggerHaptic('hit'); saveQuickButtonUsage(pts);
     const activeP = players[activePlayer]; 
     const tScore = activeP.score - pts;
-    let isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1) : (tScore < 0);
+    const isBust = config.checkout === 'double' ? (tScore < 0 || tScore === 1) : (tScore < 0);
     const isOut = tScore === 0;
     
     // A körösszeg önmagában nem árulja el, hány nyíl kellett a kiszállóhoz.
@@ -1140,7 +1169,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const handleHunterHit = async (hits: number) => {
       triggerHaptic('tap'); setHunterTotalHits(prev => prev + hits);
       const user = auth.currentUser;
-      if (user) {
+      if (user && !user.isAnonymous) {
           try {
               const setupId = config.dartSetupId || 'default';
               const heatmapRef = doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId);
@@ -1223,7 +1252,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const handleExit = () => { 
       localStorage.removeItem('dartisan_save'); 
       const user = auth.currentUser;
-      if (user && Object.keys(fullHeatmapData).length > 0) {
+      if (user && !user.isAnonymous && Object.keys(fullHeatmapData).length > 0) {
           const setupId = config.dartSetupId || 'default';
           setDoc(doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId), fullHeatmapData, { merge: true })
             .catch(err => console.error("Kilépési mentés hiba:", err));
@@ -1270,6 +1299,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   const displayPlayers = isAsync ? players : (players.length > 2 ? players : [...players.slice(activePlayer), ...players.slice(0, activePlayer)]);
   const safePlayer = players[activePlayer] || players[0];
+  const matchWinnerPlayer = players.reduce((winner, player) => player.setsWon > winner.setsWon ? player : winner, players[0]);
   const activeColorTheme = COLOR_STYLES[safePlayer?.color] || COLOR_STYLES['emerald']; 
   const colTxt = activeColorTheme.split(' ')[0] || 'text-emerald-400'; 
   const colBor = activeColorTheme.split(' ')[1] || 'border-emerald-500'; 
@@ -1280,15 +1310,15 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const recObj = getCheckoutTable(safePlayer.score, 3 - currentDarts.length);
 
   return (
-    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight relative pt-10">
+    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-10">
       {tutKey && (
           <button onClick={() => setShowTutorial(true)} className="absolute top-4 left-4 z-[999] p-2 text-slate-400 hover:text-amber-400 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black">?</button>
       )}
       <button onClick={() => window.open('/tv', '_blank')} className="absolute top-4 right-16 z-[999] p-2 text-slate-400 hover:text-cyan-500 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black uppercase leading-none">TV</button>
       <button onClick={onBackToSetup} className="absolute top-4 right-4 z-[999] p-2 text-slate-400 hover:text-rose-500 bg-slate-900 rounded-full border border-slate-800"><XMarkIcon className="h-6 w-6" /></button>
 
-      <div className={`w-full px-3 sm:px-6 pb-2 grid gap-2 sm:gap-3 mx-auto shrink-0 ${inputMode === 'board' ? 'max-w-[1100px]' : 'max-w-2xl'}`}
-           style={{ gridTemplateColumns: `repeat(${Math.min(displayPlayers.length, 4)}, 1fr)`, height: displayPlayers.length > 2 ? '8rem' : inputMode === 'detailed' ? '9rem' : '6rem' }}>
+      <div className="w-full max-w-[1100px] px-3 sm:px-6 pb-2 grid gap-2 sm:gap-3 mx-auto shrink-0"
+           style={{ gridTemplateColumns: `repeat(${Math.min(displayPlayers.length, 4)}, 1fr)`, height: displayPlayers.length > 2 ? '8rem' : '6rem' }}>
           {displayPlayers.map((pl) => {
               const pColStyle = COLOR_STYLES[pl.color] || COLOR_STYLES.emerald;
               const pColTxt = pColStyle.split(' ')[0];
@@ -1303,10 +1333,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           })}
       </div>
 
-      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full mx-auto flex flex-col relative shrink-0 ${inputMode === 'board' ? 'max-w-[1100px] pt-2 pb-2' : 'max-w-2xl pt-3 pb-6 sm:pb-4'}`}>
+      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full max-w-[1100px] mx-auto flex flex-col relative shrink-0 ${inputMode === 'board' ? 'pt-2 pb-2' : 'pt-3 pb-6 sm:pb-4 md:flex-1 md:justify-center'}`}>
 
         {/* Checkout suggestion bar */}
-        <div className={`w-full flex items-center justify-center transition-all ${recObj || inputMode === 'detailed' ? 'min-h-[46px] mb-3' : 'min-h-0 mb-0'}`}>
+        <div className={`w-full flex items-center justify-center transition-all ${recObj ? 'min-h-[46px] mb-3' : 'hidden'}`}>
              {recObj ? (
                 <div className={`${recObj.isSmart && checkoutStrategy === 'pro' ? 'bg-[#b655ff]/10 border-[#b655ff]/30 text-[#b655ff]' : `bg-cyan-500/10 border-cyan-500/20 text-cyan-400`} px-4 sm:px-6 py-2 rounded-xl border flex items-center justify-center w-full shadow-inner`}>
                     <span className="font-mono text-sm sm:text-base font-black tracking-[0.15em] sm:tracking-[0.2em] uppercase italic w-full text-center">
@@ -1346,22 +1376,22 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             </div>
             {/* Multiplier */}
             <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setActiveMult(1)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 1 ? 'bg-white text-black' : 'bg-slate-800 text-slate-500'}`}>SINGLE</button>
-                <button onClick={() => setActiveMult(2)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 2 ? `bg-emerald-500 text-black` : 'bg-slate-800 text-slate-500'}`}>DOUBLE</button>
-                <button onClick={() => setActiveMult(3)} className={`h-11 sm:h-13 rounded-xl font-black text-[10px] sm:text-xs transition-all ${activeMult === 3 ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>TRIPLE</button>
+                <button onClick={() => setActiveMult(1)} className={`h-11 sm:h-13 md:h-[clamp(48px,8dvh,96px)] rounded-xl font-black text-[10px] sm:text-xs md:text-base transition-all ${activeMult === 1 ? 'bg-white text-black' : 'bg-slate-800 text-slate-500'}`}>SINGLE</button>
+                <button onClick={() => setActiveMult(2)} className={`h-11 sm:h-13 md:h-[clamp(48px,8dvh,96px)] rounded-xl font-black text-[10px] sm:text-xs md:text-base transition-all ${activeMult === 2 ? `bg-emerald-500 text-black` : 'bg-slate-800 text-slate-500'}`}>DOUBLE</button>
+                <button onClick={() => setActiveMult(3)} className={`h-11 sm:h-13 md:h-[clamp(48px,8dvh,96px)] rounded-xl font-black text-[10px] sm:text-xs md:text-base transition-all ${activeMult === 3 ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>TRIPLE</button>
             </div>
             {/* Numbers 1-20 + 0 */}
             <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                 {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(n => (
                     <button key={n} onClick={() => handleDartPress(n)}
-                        className="h-10 sm:h-12 bg-slate-800/60 rounded-lg font-black text-sm sm:text-base active:scale-90 transition-transform">{n}</button>
+                        className="h-10 sm:h-12 md:h-[clamp(48px,8dvh,96px)] bg-slate-800/60 rounded-lg font-black text-sm sm:text-base md:text-2xl active:scale-90 transition-transform">{n}</button>
                 ))}
                 <button onClick={() => handleDartPress(0)}
-                    className="h-10 sm:h-12 bg-slate-900 rounded-lg font-black text-sm text-slate-600 active:scale-90 transition-transform border border-slate-800">0</button>
+                    className="h-10 sm:h-12 md:h-[clamp(48px,8dvh,96px)] bg-slate-900 rounded-lg font-black text-sm md:text-2xl text-slate-600 active:scale-90 transition-transform border border-slate-800">0</button>
                 <button onClick={() => handleDartPress(25)} disabled={activeMult === 3}
-                    className={`h-10 sm:h-12 rounded-lg font-black text-xs col-span-3 transition-all ${activeMult === 3 ? 'opacity-40 bg-slate-900' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'}`}>BULL</button>
+                    className={`h-10 sm:h-12 md:h-[clamp(48px,8dvh,96px)] rounded-lg font-black text-xs md:text-lg col-span-3 transition-all ${activeMult === 3 ? 'opacity-40 bg-slate-900' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'}`}>BULL</button>
                 <button onClick={() => handleDartPress(0)}
-                    className="h-10 sm:h-12 bg-slate-800/30 rounded-lg font-black text-[10px] col-span-1 text-slate-600 uppercase active:scale-90 border border-slate-800">Miss</button>
+                    className="h-10 sm:h-12 md:h-[clamp(48px,8dvh,96px)] bg-slate-800/30 rounded-lg font-black text-[10px] md:text-base col-span-1 text-slate-600 uppercase active:scale-90 border border-slate-800">Miss</button>
             </div>
             </div>
         )}
@@ -1410,10 +1440,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {[1,2,3,4,5,6,7,8,9,0].map(n => (
                     <button key={n} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing') setInput(input+n); }}
-                        className={`h-14 sm:h-16 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
+                        className={`h-14 sm:h-16 md:h-[clamp(56px,11dvh,110px)] rounded-xl bg-slate-800/40 text-2xl sm:text-3xl md:text-4xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
                 ))}
                 <button onClick={() => handleFastEnter()}
-                    className={`h-14 sm:h-16 rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs font-black uppercase active:scale-95 transition-transform`}>Enter</button>
+                    className={`h-14 sm:h-16 md:h-[clamp(56px,11dvh,110px)] rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs md:text-xl font-black uppercase active:scale-95 transition-transform`}>Enter</button>
             </div>
             </div>
         )}
@@ -1427,10 +1457,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             
             <TrophyIcon className="h-24 w-24 text-amber-400 mb-3 mt-4 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)] shrink-0 z-10" />
             <h2 className="text-4xl sm:text-5xl font-black text-white mb-2 uppercase italic tracking-tighter leading-none z-10 text-center">
-                {config.gameMode === 'career' && activePlayer === 0 ? txt.careerWon : txt.matchShot}
+                {config.gameMode === 'career' && matchWinnerPlayer?.id === 0 ? txt.careerWon : txt.matchShot}
             </h2>
             <p className={`${colTxt} text-lg sm:text-xl mb-10 font-black uppercase tracking-widest z-10 text-center`}>
-                {safePlayer?.name} {txt.winsMatch}
+                {matchWinnerPlayer?.name} {txt.winsMatch}
             </p>
             
             <div className="w-full max-w-2xl bg-[#12141a]/90 backdrop-blur-lg rounded-[2.5rem] border border-slate-800 p-4 sm:p-8 mb-10 shrink-0 flex flex-col gap-8 z-10 shadow-2xl">
@@ -1498,7 +1528,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                     </button>
                 ) : (
                     <>
-                        {onRematch && (
+                        {onRematch && !isAsync && (
                             <button onClick={onRematch} className="flex-1 h-14 sm:h-16 rounded-2xl bg-emerald-500 text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
                                 <ArrowPathIcon className="h-5 w-5 sm:h-6 sm:w-6" /> Újrajátszás
                             </button>

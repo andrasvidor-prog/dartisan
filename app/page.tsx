@@ -14,6 +14,7 @@ import { CricketScreen } from '../components/CricketScreen';
 import { auth, db } from '../firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDocFromServer, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { syncPublicProfile } from '../lib/publicProfile';
 
 export type Language = 'hu' | 'en';
 
@@ -21,6 +22,7 @@ export default function Home() {
   const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'career' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
   const [lang, setLang] = useState<Language>('hu');
   const [matchConfig, setMatchConfig] = useState<any>(null);
+  const [matchInstance, setMatchInstance] = useState(0);
   const [matchResult, setMatchResult] = useState<any>(null); 
   const [isMounted, setIsMounted] = useState(false);
   
@@ -42,7 +44,7 @@ export default function Home() {
       if (savedTheme !== 'dark') document.body.classList.add(`theme-${savedTheme}`);
 
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
-          if (user) {
+          if (user && !user.isAnonymous) {
               const docRef = doc(db, 'users', user.uid);
               // A napváltást a Firestore által visszaigazolt szerveridőből számoljuk.
               await setDoc(docRef, { serverClockProbe: serverTimestamp() }, { merge: true });
@@ -54,6 +56,7 @@ export default function Home() {
               if (docSnap.exists() && docSnap.data().createdAt) {
                   const data = docSnap.data();
                   setCurrentUser({ ...user, ...data });
+                  syncPublicProfile(user.uid, data).catch(error => console.error('Public profile sync:', error));
                   setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
 
                   // --- NAPI STREAK LOGIKA ---
@@ -78,11 +81,13 @@ export default function Home() {
                   // Új felhasználó inicializálása
                   const displayName = user.displayName || user.email?.split('@')[0] || 'Player';
                   const randomTag = Math.floor(1000 + Math.random() * 9000);
-                  await setDoc(docRef, { 
+                  const initialProfile = {
                       name: displayName, email: user.email, photoURL: user.photoURL, 
                       tag: randomTag, xp: 0, weeklyXp: 0, matchesWon: 0, 
                       createdAt: serverTimestamp(), lastLogin: todayStr, streak: 1
-                  }, { merge: true });
+                  };
+                  await setDoc(docRef, initialProfile, { merge: true });
+                  syncPublicProfile(user.uid, initialProfile).catch(error => console.error('Public profile sync:', error));
                   setCurrentUser({ ...user, displayName, tag: randomTag });
                   setUserLevel(1);
                   setUserStreak(1);
@@ -92,7 +97,7 @@ export default function Home() {
           }
       });
       return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   if (!isMounted) return null;
@@ -122,6 +127,7 @@ export default function Home() {
           userStreak={userStreak}
           onStart={(config) => {
             setMatchConfig(config);
+            setMatchInstance(value => value + 1);
             if (config.gameMode === 'career') {
                 setCurrentScreen('career');
             } else if (config.gameMode === 'cricket') {
@@ -159,10 +165,12 @@ export default function Home() {
 
       {currentScreen === 'match' && matchConfig && (
         <MatchScreen
+          key={matchInstance}
           config={matchConfig}
           lang={lang}
           onRematch={() => {
               setMatchResult(null);
+              setMatchInstance(value => value + 1);
               setCurrentScreen('match');
           }}
           onBackToSetup={() => {

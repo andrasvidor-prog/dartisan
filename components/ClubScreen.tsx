@@ -8,7 +8,7 @@ import {
 } from '@heroicons/react/24/outline';
 import {
     collection, query, orderBy, limit, onSnapshot, doc, getDoc, setDoc,
-    updateDoc, arrayUnion, arrayRemove, increment
+    updateDoc, arrayUnion, arrayRemove, writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -123,6 +123,7 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
                 } else {
                     // Klub törölték — takarítás
                     await updateDoc(doc(db, 'users', currentUser.uid), { clubId: null });
+                    await setDoc(doc(db, 'publicProfiles', currentUser.uid), { clubId: null }, { merge: true });
                     setMyClub(null);
                 }
             } else {
@@ -150,7 +151,7 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
         const fetchMembers = async () => {
             const docs = await Promise.all(
                 (myClub.members as string[]).map((uid: string) =>
-                    getDoc(doc(db, 'users', uid))
+                    getDoc(doc(db, 'publicProfiles', uid))
                 )
             );
             setClubMembers(
@@ -188,7 +189,8 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
         setIsCreating(true);
         try {
             const clubRef = doc(collection(db, 'clubs'));
-            await setDoc(clubRef, {
+            const batch = writeBatch(db);
+            batch.set(clubRef, {
                 name: newClubName.trim(),
                 ownerId: currentUser.uid,
                 members: [currentUser.uid],
@@ -196,7 +198,9 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
                 maxMembers: 25,
                 createdAt: new Date().toISOString(),
             });
-            await updateDoc(doc(db, 'users', currentUser.uid), { clubId: clubRef.id });
+            batch.update(doc(db, 'users', currentUser.uid), { clubId: clubRef.id });
+            batch.set(doc(db, 'publicProfiles', currentUser.uid), { clubId: clubRef.id }, { merge: true });
+            await batch.commit();
             setShowCreateModal(false);
             setNewClubName('');
         } catch (e) {
@@ -211,8 +215,11 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
         if (!window.confirm(t.joinConfirm(clubName))) return;
         setJoiningClubId(clubId);
         try {
-            await updateDoc(doc(db, 'clubs', clubId), { members: arrayUnion(currentUser.uid) });
-            await updateDoc(doc(db, 'users', currentUser.uid), { clubId });
+            const batch = writeBatch(db);
+            batch.update(doc(db, 'clubs', clubId), { members: arrayUnion(currentUser.uid) });
+            batch.update(doc(db, 'users', currentUser.uid), { clubId });
+            batch.set(doc(db, 'publicProfiles', currentUser.uid), { clubId }, { merge: true });
+            await batch.commit();
         } catch (e) {
             console.error('Csatlakozási hiba:', e);
         }
@@ -224,8 +231,11 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
         if (!window.confirm(t.leaveConfirm)) return;
         setIsLeaving(true);
         try {
-            await updateDoc(doc(db, 'clubs', myClub.id), { members: arrayRemove(currentUser.uid) });
-            await updateDoc(doc(db, 'users', currentUser.uid), { clubId: null });
+            const batch = writeBatch(db);
+            batch.update(doc(db, 'clubs', myClub.id), { members: arrayRemove(currentUser.uid) });
+            batch.update(doc(db, 'users', currentUser.uid), { clubId: null });
+            batch.set(doc(db, 'publicProfiles', currentUser.uid), { clubId: null }, { merge: true });
+            await batch.commit();
         } catch (e) {
             console.error('Kilépési hiba:', e);
         }

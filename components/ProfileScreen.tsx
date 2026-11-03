@@ -10,7 +10,7 @@ import {
 import { db, auth } from '../firebase';
 import {
     doc, onSnapshot, collection, getDocs, query, limit,
-    updateDoc, arrayUnion, orderBy, getDoc
+    updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
         try {
-            const snap = await getDocs(query(collection(db, 'users'), limit(30)));
+            const snap = await getDocs(query(collection(db, 'publicProfiles'), limit(30)));
             setSearchResults(
                 snap.docs
                     .map(d => ({ id: d.id, ...d.data() }))
@@ -291,10 +291,6 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         isViewingOther.current = true;
         setViewedStats(u);
         setActiveTab('profile');
-        try {
-            const histSnap = await getDocs(collection(db, 'users', u.id, 'matchHistory'));
-            // we don't override matchHistory here since it belongs to the "own" feed
-        } catch (e) { console.error(e); }
     };
 
     const handleAddFriend = async (friendId: string) => {
@@ -307,6 +303,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         const user = auth.currentUser;
         if (!user) return;
         await updateDoc(doc(db, 'users', user.uid), { selectedAvatar: url });
+        await setDoc(doc(db, 'publicProfiles', user.uid), { selectedAvatar: url }, { merge: true });
         setIsEditingAvatar(false);
     };
 

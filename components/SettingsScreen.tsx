@@ -178,7 +178,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
 
         const fetchFirestore = async () => {
             const user = auth.currentUser;
-            if (!user) return;
+            if (!user || user.isAnonymous) return;
             const snap = await getDoc(doc(db, 'users', user.uid));
             if (!snap.exists()) return;
             const s = snap.data().settings || {};
@@ -219,7 +219,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
 
         // Firestore
         const user = auth.currentUser;
-        if (user) {
+        if (user && !user.isAnonymous) {
             await setDoc(doc(db,'users',user.uid), {
                 settings: { fastBtns: fastArr, favDouble, checkout, inputMode, strategy }
             }, { merge: true });
