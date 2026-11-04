@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
+import type { Dart, PlayerData } from '../../components/MatchScreen';
+
+type TvSync = { players: PlayerData[]; activePlayer: number; currentDarts: Dart[] };
+const subscribeToMatch = (notify: () => void) => {
+    window.addEventListener('storage', notify);
+    const interval = window.setInterval(notify, 400);
+    return () => { window.removeEventListener('storage', notify); window.clearInterval(interval); };
+};
 
 const DARTBOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 
@@ -27,23 +35,14 @@ const dartCoord = (val: number, mult: number, idx: number) => {
 const HEX: Record<string,string> = { emerald:'#34d399', rose:'#fb7185', cyan:'#22d3ee', amber:'#fbbf24', purple:'#b655ff' };
 
 export default function TVPage() {
-    const [syncData, setSyncData] = useState<any>(null);
-    const [tick, setTick]         = useState(0);
-
-    const read = useCallback(() => {
+    const raw = useSyncExternalStore(subscribeToMatch, () => localStorage.getItem('dartisan_tv_sync'), () => null);
+    const syncData = useMemo<TvSync | null>(() => {
         try {
-            const raw = localStorage.getItem('dartisan_tv_sync');
-            if (raw) { setSyncData(JSON.parse(raw)); setTick(t=>t+1); }
-        } catch {}
-    }, []);
-
-    useEffect(() => {
-        read();
-        const onStorage = (e: StorageEvent) => { if (e.key === 'dartisan_tv_sync') read(); };
-        window.addEventListener('storage', onStorage);
-        const iv = setInterval(read, 400);
-        return () => { window.removeEventListener('storage', onStorage); clearInterval(iv); };
-    }, [read]);
+            const value = raw ? JSON.parse(raw) : null;
+            return value && Array.isArray(value.players) && Array.isArray(value.currentDarts) && Number.isInteger(value.activePlayer)
+                ? value as TvSync : null;
+        } catch { return null; }
+    }, [raw]);
 
     if (!syncData?.players?.length) return (
         <div className="fixed inset-0 bg-[#050508] flex flex-col items-center justify-center gap-4">
@@ -65,7 +64,7 @@ export default function TVPage() {
 
             {/* ── SCORE HEADER ──────────────────────────────────────────── */}
             <div className="flex border-b border-[#0e1017] shrink-0">
-                {players.map((pl: any) => {
+                {players.map((pl) => {
                     const isAct = pl.id === activePlayer;
                     const hex   = HEX[pl.color] ?? '#34d399';
                     return (
@@ -113,10 +112,10 @@ export default function TVPage() {
                     <circle cx="150" cy="150" r="6.35" fill="#c8102e" stroke="#040406" strokeWidth="0.6"/>
 
                     {/* ── DART MARKERS ────────────────────────────────── */}
-                    {currentDarts.map((d: any, di: number)=>{
+                    {currentDarts.map((d, di: number)=>{
                         const pos=dartCoord(d.val,d.mult,di);
                         return (
-                            <g key={`${di}-${tick}`}>
+                            <g key={`${di}-${d.val}-${d.mult}`}>
                                 {/* Glow ring */}
                                 <circle cx={pos.x} cy={pos.y} r="13" fill={apHex} opacity="0.15"/>
                                 <circle cx={pos.x} cy={pos.y} r="9"  fill={apHex} opacity="0.2"/>

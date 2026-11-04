@@ -45,7 +45,7 @@ export function TvOverlay({ p1Name, p2Name, p1Score, p2Score, p1Sets, p2Sets, p1
                         </div>
 
                         <label className="text-[10px] font-black text-slate-500 uppercase mt-2">Pozíció</label>
-                        <select value={position} onChange={(e) => setPosition(e.target.value as any)} className="bg-slate-900 text-xs font-bold text-white rounded-lg p-2 border border-slate-700 outline-none">
+                        <select value={position} onChange={(e) => setPosition(e.target.value as 'bottom' | 'top-left' | 'top-right')} className="bg-slate-900 text-xs font-bold text-white rounded-lg p-2 border border-slate-700 outline-none">
                             <option value="bottom">Lent Középen</option>
                             <option value="top-left">Bal Felül</option>
                             <option value="top-right">Jobb Felül</option>

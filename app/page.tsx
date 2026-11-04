@@ -1,44 +1,46 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { SetupScreen } from '../components/SetupScreen';
+import type { MatchConfig } from '../components/SetupScreen';
 import { MatchScreen } from '../components/MatchScreen';
+import type { TournamentConfig } from '../components/TournamentScreen';
+import type { User } from 'firebase/auth';
 import ProfileScreen from '../components/ProfileScreen';
 import { TournamentBracket } from '../components/TournamentBracket';
-import { CareerBracket } from '../components/CareerBracket';
 import { AiCoach } from '../components/AiCoach';
 import { TournamentScreen } from '../components/TournamentScreen';
 import { SettingsScreen } from '../components/SettingsScreen';
 import { ClubScreen } from '../components/ClubScreen';
 import { CricketScreen } from '../components/CricketScreen';
-import { auth, db } from '../firebase'; 
+import { auth, db, functions } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import { doc, getDocFromServer, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { syncPublicProfile } from '../lib/publicProfile';
+import { nextCareerStage } from '../lib/career';
 
 export type Language = 'hu' | 'en';
+const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
+const subscribeMounted = () => () => {};
 
 export default function Home() {
   const scrollContainerRef = useRef<HTMLElement>(null);
-  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'career' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
-  const [lang, setLang] = useState<Language>('hu');
-  const [matchConfig, setMatchConfig] = useState<any>(null);
+  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
+  const [lang, setLang] = useState<Language>(() => typeof window !== 'undefined' && localStorage.getItem('dartisan_lang') === 'en' ? 'en' : 'hu');
+  const [matchConfig, setMatchConfig] = useState<MatchConfig | null>(null);
   const [matchInstance, setMatchInstance] = useState(0);
-  const [matchResult, setMatchResult] = useState<any>(null); 
-  const [isMounted, setIsMounted] = useState(false);
+  const [matchResult, setMatchResult] = useState<{ winnerId: string; score1: number; score2: number; tournamentMatchId?: string; isGroupMatch?: boolean } | null>(null);
+  const isMounted = useSyncExternalStore(subscribeMounted, () => true, () => false);
   
-  const [currentUser, setCurrentUser] = useState<any>(null); 
+  const [currentUser, setCurrentUser] = useState<(User & { xp?: number; streak?: number; tag?: number }) | null>(null);
   const [userLevel, setUserLevel] = useState(1);
   const [userStreak, setUserStreak] = useState(1);
 
-  const [tournamentConfig, setTournamentConfig] = useState<any>(null);
+  const [tournamentConfig, setTournamentConfig] = useState<TournamentConfig | null>(null);
   const [showTournament, setShowTournament] = useState(false);
 
   useEffect(() => {
-      setIsMounted(true);
-      const savedLang = localStorage.getItem('dartisan_lang') as Language;
-      if (savedLang) setLang(savedLang);
-
       // Apply saved theme
       const savedTheme = localStorage.getItem('dartisan_theme') || 'dark';
       document.body.classList.remove('theme-dark', 'theme-amoled', 'theme-contrast', 'theme-dim');
@@ -47,6 +49,31 @@ export default function Home() {
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
           if (user && !user.isAnonymous) {
               const docRef = doc(db, 'users', user.uid);
+              if (SERVER_MATCH_ENABLED) {
+                  try {
+                      const syncLogin = httpsCallable<Record<string, never>, { streak: number }>(functions, 'syncLoginStreak');
+                      const result = await syncLogin({});
+                      const snapshot = await getDocFromServer(docRef);
+                      const data = snapshot.data() || {};
+                      setCurrentUser({ ...user, ...data });
+                      setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
+                      setUserStreak(result.data.streak);
+                      syncPublicProfile(user.uid, {
+                          name: data.name, displayName: data.displayName, photoURL: data.photoURL,
+                          selectedAvatar: data.selectedAvatar, tag: data.tag, clubId: data.clubId,
+                      }).catch(error => console.error('Public profile sync:', error));
+                  } catch (error) {
+                      console.error('Server profile sync failed:', error);
+                      const snapshot = await getDocFromServer(docRef);
+                      if (snapshot.exists()) {
+                          const data = snapshot.data();
+                          setCurrentUser({ ...user, ...data });
+                          setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
+                          setUserStreak(data.streak || 1);
+                      }
+                  }
+                  return;
+              }
               // A napváltást a Firestore által visszaigazolt szerveridőből számoljuk.
               await setDoc(docRef, { serverClockProbe: serverTimestamp() }, { merge: true });
               const docSnap = await getDocFromServer(docRef);
@@ -115,13 +142,14 @@ export default function Home() {
       `}} />
       
       {currentScreen === 'settings' && (
-        <SettingsScreen onBack={() => setCurrentScreen('setup')} />
+        <SettingsScreen onBack={() => setCurrentScreen('setup')} onLanguageChange={setLang} />
       )}
 
       {currentScreen === 'club' && (
         <ClubScreen 
             onBack={() => setCurrentScreen('setup')} 
-            currentUser={currentUser} 
+            currentUser={currentUser}
+            lang={lang}
         />
       )}
       
@@ -133,9 +161,7 @@ export default function Home() {
           onStart={(config) => {
             setMatchConfig(config);
             setMatchInstance(value => value + 1);
-            if (config.gameMode === 'career') {
-                setCurrentScreen('career');
-            } else if (config.gameMode === 'cricket') {
+            if (config.gameMode === 'cricket') {
                 setCurrentScreen('cricket');
             } else {
                 setMatchResult(null);
@@ -153,7 +179,7 @@ export default function Home() {
       {showTournament && (
         <TournamentScreen 
           onBack={() => setShowTournament(false)}
-          onStartTournament={(config: any) => {
+          onStartTournament={(config) => {
               setShowTournament(false);
               setTournamentConfig(config);
               setCurrentScreen('custom_tournament');
@@ -181,27 +207,29 @@ export default function Home() {
           onBackToSetup={() => {
               if (matchConfig.isCustomTournamentMatch) {
                   setCurrentScreen('custom_tournament');
-              } else if (matchConfig.gameMode === 'career') {
-                  setCurrentScreen('career'); 
               } else {
                   setCurrentScreen('setup'); 
               }
           }}
           onMatchComplete={(playersData) => {
-              const winner = playersData.reduce((prev: any, current: any) => {
+              if (playersData.length < 2) { setCurrentScreen('setup'); return; }
+              const winner = playersData.reduce((prev, current) => {
                   const prevScore = prev.setsWon * 1000 + prev.legsWon;
                   const currScore = current.setsWon * 1000 + current.legsWon;
                   return prevScore >= currScore ? prev : current;
               });
               setMatchResult({
-                  winnerId: winner.id,
+                  winnerId: matchConfig.tournamentPlayerIds?.[winner.id] || String(winner.id),
                   score1: playersData[0].setsWon > 0 ? playersData[0].setsWon : playersData[0].legsWon,
                   score2: playersData[1].setsWon > 0 ? playersData[1].setsWon : playersData[1].legsWon,
                   tournamentMatchId: matchConfig.tournamentMatchId,
                   isGroupMatch: matchConfig.isGroupMatch
               });
-              if (matchConfig.gameMode === 'career') setCurrentScreen('career'); 
-              else if (matchConfig.isCustomTournamentMatch) setCurrentScreen('custom_tournament');
+              if (matchConfig.gameMode === 'career' && winner.id === 0) {
+                  const previous = Number(localStorage.getItem('dartisan_career_stage') || 0);
+                  localStorage.setItem('dartisan_career_stage', String(nextCareerStage(previous, matchConfig.careerStage || 0, winner.id)));
+              }
+              if (matchConfig.isCustomTournamentMatch) setCurrentScreen('custom_tournament');
               else setCurrentScreen('setup'); 
           }}
         />
@@ -215,21 +243,6 @@ export default function Home() {
           onPlayMatch={(generatedMatchConfig) => {
               setMatchConfig({...generatedMatchConfig, isCustomTournamentMatch: true});
               setMatchResult(null);
-              setCurrentScreen('match');
-          }}
-        />
-      )}
-
-      {currentScreen === 'career' && matchConfig && (
-        <CareerBracket
-          userPlayer={matchConfig.players[0]} 
-          matchResult={matchResult} 
-          onBack={() => setCurrentScreen('setup')}
-          onPlayMatch={(opponent) => {
-              setMatchConfig({
-                  ...matchConfig,
-                  players: [matchConfig.players[0], opponent]
-              });
               setCurrentScreen('match');
           }}
         />

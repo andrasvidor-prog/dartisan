@@ -7,8 +7,11 @@ import {
     DevicePhoneMobileIcon, BoltIcon, CheckCircleIcon, LanguageIcon,
     AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
-import { db, auth } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db, auth, functions } from '../firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { parseLocalBackup } from '../lib/backup';
 
 const LABELS = {
     hu: {
@@ -54,6 +57,11 @@ const LABELS = {
         exportTitle: 'Helyi adatok mentése (Export)',
         exportDesc: 'A böngészőben tárolt adatok letöltése JSON fájlba. A felhőben mentett profil nincs benne.',
         exportBtn: 'Fájl letöltése',
+        cloudExportTitle: 'Felhőben tárolt adataim',
+        cloudExportDesc: 'A profil, a meccselőzmények, az edzőterv és a hőtérképek letöltése. Bejelentkezés szükséges.',
+        cloudExportBtn: 'Felhőadatok letöltése',
+        cloudExportError: 'A felhőadatok letöltése nem sikerült. Ellenőrizd a bejelentkezést és próbáld újra.',
+        cloudSignInRequired: 'Bejelentkezés szükséges',
         importTitle: 'Adatok visszatöltése (Import)',
         importDesc: 'Korábbi backup visszaállítása.',
         importBtn: 'Fájl kiválasztása',
@@ -62,6 +70,11 @@ const LABELS = {
         dangerBtn: 'Helyi adatok törlése',
         confirmReset: 'Biztosan törlöd ennek a böngészőnek a Dartisan adatait? A Firebase-profil megmarad.',
         resetDone: 'A helyi adatok törölve. A felhőben tárolt profil megmaradt.',
+        accountDeleteTitle: 'Fiók végleges törlése',
+        accountDeleteDesc: 'A bejelentkezési fiók, a profil, a meccselőzmények és a kapcsolódó adatok végleg törlődnek.',
+        accountDeleteBtn: 'Fiókom törlése',
+        accountDeleteConfirm: 'Végleg törlöd a fiókodat és a felhőben tárolt adataidat? Ez nem vonható vissza.',
+        accountDeleteError: 'A fiók törlése nem sikerült. Ha a rendszer friss bejelentkezést kér, jelentkezz ki, majd újra be és próbáld meg ismét.',
         successImport: 'Sikeres visszaállítás! Az oldal most frissül.',
         errorImport: 'Hiba: Érvénytelen Dartisan backup fájl.',
     },
@@ -104,6 +117,11 @@ const LABELS = {
         exportTitle: 'Export local data',
         exportDesc: 'Download data stored in this browser. Cloud profile data is not included.',
         exportBtn: 'Download file',
+        cloudExportTitle: 'My cloud data',
+        cloudExportDesc: 'Download your profile, match history, coaching plan and heatmaps. Sign-in is required.',
+        cloudExportBtn: 'Download cloud data',
+        cloudExportError: 'Cloud data download failed. Check your sign-in and try again.',
+        cloudSignInRequired: 'Sign in to download',
         importTitle: 'Import data',
         importDesc: 'Restore a previous backup.',
         importBtn: 'Choose file',
@@ -112,6 +130,11 @@ const LABELS = {
         dangerBtn: 'Delete local data',
         confirmReset: 'Delete Dartisan data from this browser? Your Firebase profile remains.',
         resetDone: 'Local data deleted. Your cloud profile remains.',
+        accountDeleteTitle: 'Permanently delete account',
+        accountDeleteDesc: 'Your sign-in account, profile, match history and associated data will be permanently deleted.',
+        accountDeleteBtn: 'Delete my account',
+        accountDeleteConfirm: 'Permanently delete your account and cloud data? This cannot be undone.',
+        accountDeleteError: 'Account deletion failed. If a recent sign-in is required, sign out, sign back in and try again.',
         successImport: 'Restore successful! Reloading...',
         errorImport: 'Error: Invalid Dartisan backup file.',
     },
@@ -137,45 +160,43 @@ const Row = ({ icon, label, desc, children }: { icon?: React.ReactNode; label: s
     </div>
 );
 
-interface SettingsScreenProps { onBack: () => void; }
+interface SettingsScreenProps { onBack: () => void; onLanguageChange?: (language: 'hu' | 'en') => void; }
+const savedSetting = (key: string) => typeof window === 'undefined' ? null : localStorage.getItem(key);
 
-export function SettingsScreen({ onBack }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps) {
     const [activeTab, setActiveTab] = useState(0);
     const [saved, setSaved]         = useState(false);
+    const [cloudExporting, setCloudExporting] = useState(false);
+    const [signedIn, setSignedIn] = useState(false);
+    const [deletingAccount, setDeletingAccount] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    useEffect(() => onAuthStateChanged(auth, user => setSignedIn(!!user && !user.isAnonymous)), []);
+
     // ── General ─────────────────────────────────────────────────────────────
-    const [lang,    setLang]    = useState<'hu'|'en'>('hu');
-    const [theme,   setTheme]   = useState('dark');
+    const [lang,    setLang]    = useState<'hu'|'en'>(() => savedSetting('dartisan_lang') === 'en' ? 'en' : 'hu');
+    const [theme,   setTheme]   = useState(() => savedSetting('dartisan_theme') || 'dark');
 
     // ── Gameplay ─────────────────────────────────────────────────────────────
-    const [checkout,   setCheckout]   = useState<'single'|'double'>('double');
-    const [inputMode,  setInputMode]  = useState<'fast'|'detailed'|'board'>('fast');
-    const [strategy,   setStrategy]   = useState<'safe'|'pro'>('safe');
+    const [checkout,   setCheckout]   = useState<'single'|'double'>(() => savedSetting('dartisan_checkout') === 'single' ? 'single' : 'double');
+    const [inputMode,  setInputMode]  = useState<'fast'|'detailed'|'board'>(() => {
+        const value = savedSetting('dartisan_pref_input');
+        return value === 'detailed' || value === 'board' ? value : 'fast';
+    });
+    const [strategy,   setStrategy]   = useState<'safe'|'pro'>(() => savedSetting('dartisan_strategy') === 'pro' ? 'pro' : 'safe');
     const [favDouble,  setFavDouble]  = useState('D16');
     const [fastBtns,   setFastBtns]   = useState('60, 100, 140');
-    const [haptic,     setHaptic]     = useState(true);
+    const [haptic,     setHaptic]     = useState(() => savedSetting('dartisan_haptic') !== 'false');
 
     // ── Sounds ───────────────────────────────────────────────────────────────
-    const [soundMaster, setSoundMaster] = useState(true);
-    const [sound180,    setSound180]    = useState(true);
-    const [soundWin,    setSoundWin]    = useState(true);
+    const [soundMaster, setSoundMaster] = useState(() => savedSetting('dartisan_sound_master') !== 'false');
+    const [sound180,    setSound180]    = useState(() => savedSetting('dartisan_sound_180') !== 'false');
+    const [soundWin,    setSoundWin]    = useState(() => savedSetting('dartisan_sound_legwin') !== 'false');
 
     const txt = LABELS[lang];
 
     // Load all settings on mount
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        setLang((localStorage.getItem('dartisan_lang') as 'hu'|'en') || 'hu');
-        setTheme(localStorage.getItem('dartisan_theme') || 'dark');
-        setCheckout((localStorage.getItem('dartisan_checkout') as any) || 'double');
-        setInputMode((localStorage.getItem('dartisan_pref_input') as any) || 'fast');
-        setStrategy((localStorage.getItem('dartisan_strategy') as any) || 'safe');
-        setHaptic(localStorage.getItem('dartisan_haptic') !== 'false');
-        setSoundMaster(localStorage.getItem('dartisan_sound_master') !== 'false');
-        setSound180(localStorage.getItem('dartisan_sound_180') !== 'false');
-        setSoundWin(localStorage.getItem('dartisan_sound_legwin') !== 'false');
-
         const fetchFirestore = async () => {
             const user = auth.currentUser;
             if (!user || user.isAnonymous) return;
@@ -202,6 +223,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     const applyLang = (l: 'hu'|'en') => {
         setLang(l);
         localStorage.setItem('dartisan_lang', l);
+        onLanguageChange?.(l);
     };
 
     const saveAll = async () => {
@@ -234,27 +256,63 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     };
 
     // ── Export / Import / Reset ───────────────────────────────────────────────
+    const downloadJson = (data: unknown, filename: string) => {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+        const a=document.createElement('a');
+        a.href=url;
+        a.download=filename;
+        a.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
     const handleExport = () => {
         const data: Record<string,string|null> = {};
         for (let i=0;i<localStorage.length;i++){
             const k=localStorage.key(i);
             if(k?.startsWith('dartisan_')) data[k]=localStorage.getItem(k);
         }
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
-        a.download=`dartisan_backup_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
+        downloadJson({ version: 1, local: data }, `dartisan_backup_${new Date().toISOString().split('T')[0]}.json`);
+    };
+
+    const handleCloudExport = async () => {
+        setCloudExporting(true);
+        try {
+            await auth.authStateReady();
+            const user = auth.currentUser;
+            if (!user || user.isAnonymous) throw new Error('Sign-in required');
+            const base = ['users', user.uid] as const;
+            const [profile, publicProfile, history, plan, heatmaps] = await Promise.all([
+                getDoc(doc(db, ...base)),
+                getDoc(doc(db, 'publicProfiles', user.uid)),
+                getDocs(collection(db, ...base, 'matchHistory')),
+                getDoc(doc(db, ...base, 'coach', 'plan')),
+                getDocs(collection(db, ...base, 'stats', 'heatmaps', 'setups')),
+            ]);
+            downloadJson({ version: 1, exportedAt: new Date().toISOString(), uid: user.uid,
+                profile: profile.exists() ? profile.data() : null,
+                publicProfile: publicProfile.exists() ? publicProfile.data() : null,
+                matchHistory: history.docs.map(item => ({ id: item.id, ...item.data() })),
+                coachingPlan: plan.exists() ? plan.data() : null,
+                heatmaps: heatmaps.docs.map(item => ({ id: item.id, ...item.data() })),
+            }, `dartisan_cloud_${new Date().toISOString().split('T')[0]}.json`);
+        } catch (error) {
+            console.error('Cloud export failed', error);
+            alert(txt.cloudExportError);
+        } finally {
+            setCloudExporting(false);
+        }
     };
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file=e.target.files?.[0]; if(!file) return;
+        if (file.size > 2_500_000) { alert(txt.errorImport); e.target.value = ''; return; }
         const reader=new FileReader();
         reader.onload=ev=>{
             try {
-                const d=JSON.parse(ev.target?.result as string);
-                Object.keys(d).forEach(k=>{if(d[k]!==null) localStorage.setItem(k,d[k]);});
+                const data = parseLocalBackup(JSON.parse(ev.target?.result as string));
+                Object.entries(data).forEach(([key, value]) => localStorage.setItem(key, value));
                 alert(txt.successImport); window.location.reload();
-            } catch { alert(txt.errorImport); }
+            } catch { alert(txt.errorImport); e.target.value = ''; }
         };
         reader.readAsText(file);
     };
@@ -265,6 +323,24 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
         for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.startsWith('dartisan_'))keys.push(k);}
         keys.forEach(k=>localStorage.removeItem(k));
         alert(txt.resetDone); window.location.reload();
+    };
+
+    const handleAccountDelete = async () => {
+        if (!signedIn || !window.confirm(txt.accountDeleteConfirm)) return;
+        setDeletingAccount(true);
+        try {
+            const deleteAccount = httpsCallable<{ confirm: string }, { deleted: boolean }>(functions, 'deleteMyAccount');
+            const result = await deleteAccount({ confirm: 'DELETE MY ACCOUNT' });
+            if (!result.data.deleted) throw new Error('Account was not deleted');
+            await signOut(auth);
+            const keys = Object.keys(localStorage).filter(key => key.startsWith('dartisan_'));
+            keys.forEach(key => localStorage.removeItem(key));
+            window.location.reload();
+        } catch (error) {
+            console.error('Account deletion failed', error);
+            alert(txt.accountDeleteError);
+            setDeletingAccount(false);
+        }
     };
 
     const TABS = txt.tabs;
@@ -477,6 +553,16 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
                     <>
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
                         <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-5">
+                            <ArrowDownTrayIcon className="h-4 w-4 text-cyan-400"/> {txt.cloudExportTitle}
+                        </h2>
+                        <p className="text-xs text-slate-400 font-bold mb-4 leading-relaxed">{txt.cloudExportDesc}</p>
+                        <button onClick={handleCloudExport} disabled={cloudExporting || !signedIn}
+                            className="w-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 py-4 rounded-xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50">
+                            <ArrowDownTrayIcon className="h-5 w-5"/> {cloudExporting ? '…' : signedIn ? txt.cloudExportBtn : txt.cloudSignInRequired}
+                        </button>
+                    </div>
+                    <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
+                        <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-5">
                             <ArrowDownTrayIcon className="h-4 w-4 text-emerald-400"/> {txt.exportTitle}
                         </h2>
                         <p className="text-xs text-slate-400 font-bold mb-4 leading-relaxed">{txt.exportDesc}</p>
@@ -508,6 +594,16 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
                             <TrashIcon className="h-5 w-5"/> {txt.dangerBtn}
                         </button>
                     </div>
+                    {process.env.NEXT_PUBLIC_ACCOUNT_DELETE_ENABLED === 'true' && signedIn && (
+                        <div className="bg-rose-500/5 rounded-3xl border border-rose-500/20 p-5">
+                            <h2 className="text-xs font-black text-rose-400 uppercase tracking-widest mb-2">{txt.accountDeleteTitle}</h2>
+                            <p className="text-xs text-rose-300/70 font-bold mb-4 leading-relaxed">{txt.accountDeleteDesc}</p>
+                            <button onClick={handleAccountDelete} disabled={deletingAccount}
+                                className="w-full bg-rose-900 text-white hover:bg-rose-800 py-4 rounded-xl font-black uppercase text-sm disabled:opacity-50">
+                                {deletingAccount ? '…' : txt.accountDeleteBtn}
+                            </button>
+                        </div>
+                    )}
                     </>
                 )}
             </div>

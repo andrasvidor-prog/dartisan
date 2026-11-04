@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     TrophyIcon, ArrowLeftIcon, ChartBarIcon, StarIcon, FireIcon,
     ArrowPathIcon, MagnifyingGlassIcon, PencilIcon, UserPlusIcon,
@@ -9,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { db, auth } from '../firebase';
 import {
-    doc, onSnapshot, collection, getDocs, query, limit,
+    doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
 
@@ -57,6 +57,46 @@ const heatColor = (ratio: number) => {
 
 // ─── Heatmap SVG ──────────────────────────────────────────────────────────────
 type HM = Record<string, { hits: number; throws: number }>;
+
+type ProfileStats = {
+    id: string; name: string; tag: number; xp: number; friends: string[];
+    selectedAvatar?: string; photoURL?: string;
+    totalDarts: number; totalPoints: number; first9Darts: number; first9Points: number;
+    checkoutAttempts: number; checkoutSuccess: number; matchesPlayed: number;
+    matchesWon: number; highestCheckout: number; count100: number; count140: number;
+    count180: number; streak: number;
+};
+
+type MatchHistory = {
+    id: string; date?: Timestamp | string | number; mode?: string; opponent?: string;
+    score?: string; won?: boolean; stats?: {
+        average?: number; first9Average?: number; checkoutPct?: number;
+        bestLegDarts?: number; count100?: number; count140?: number; count180?: number;
+    };
+};
+
+const normalizeProfile = (id: string, data: Record<string, unknown>): ProfileStats => {
+    const number = (key: string) => typeof data[key] === 'number' ? data[key] as number : 0;
+    return {
+        id,
+        name: typeof data.name === 'string' ? data.name : 'Játékos',
+        tag: number('tag'), xp: number('xp'),
+        friends: Array.isArray(data.friends) ? data.friends.filter((friend): friend is string => typeof friend === 'string') : [],
+        selectedAvatar: typeof data.selectedAvatar === 'string' ? data.selectedAvatar : undefined,
+        photoURL: typeof data.photoURL === 'string' ? data.photoURL : undefined,
+        totalDarts: number('totalDarts'), totalPoints: number('totalPoints'),
+        first9Darts: number('first9Darts'), first9Points: number('first9Points'),
+        checkoutAttempts: number('checkoutAttempts'), checkoutSuccess: number('checkoutSuccess'),
+        matchesPlayed: number('matchesPlayed'), matchesWon: number('matchesWon'),
+        highestCheckout: number('highestCheckout'), count100: number('count100'),
+        count140: number('count140'), count180: number('count180'), streak: number('streak'),
+    };
+};
+
+const matchDate = (value: MatchHistory['date']) => {
+    const date = value instanceof Timestamp ? value.toDate() : new Date(value ?? 0);
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
+};
 
 const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' | 'double' | 'treble' }) => {
     const SIZE = 320; const C = SIZE / 2; const SA = 360 / 20;
@@ -116,21 +156,21 @@ const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' |
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ProfileScreen({ onBack }: { onBack: () => void }) {
-    const [myStats, setMyStats]         = useState<any>(null);
-    const [viewedStats, setViewedStats] = useState<any>(null);
-    const isViewingOther                = useRef(false);
+    const [myStats, setMyStats]         = useState<ProfileStats | null>(null);
+    const [viewedStats, setViewedStats] = useState<ProfileStats | null>(null);
+    const [isViewingOther, setIsViewingOther] = useState(false);
 
-    const [matchHistory, setMatchHistory] = useState<any[]>([]);
+    const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
     const [userHeatmap, setUserHeatmap]   = useState<HM | null>(null);
     const [hmFilter, setHmFilter]         = useState<'all' | 'single' | 'double' | 'treble'>('all');
-    const [isLoadingHM, setIsLoadingHM]   = useState(false);
+    const [isLoadingHM, setIsLoadingHM]   = useState(true);
 
     const [activeTab, setActiveTab]     = useState<'profile' | 'history' | 'analytics' | 'social'>('profile');
-    const [selectedMatch, setSelectedMatch] = useState<any>(null);
+    const [selectedMatch, setSelectedMatch] = useState<MatchHistory | null>(null);
     const [isEditingAvatar, setIsEditingAvatar] = useState(false);
 
     const [searchQuery,   setSearchQuery]   = useState('');
-    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [searchResults, setSearchResults] = useState<ProfileStats[]>([]);
     const [isSearching,   setIsSearching]   = useState(false);
 
     // ── Checkout / preference settings ───────────────────────────────────────
@@ -145,9 +185,9 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         if (!user) return;
         const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
             if (!snap.exists()) return;
-            const s = { id: user.uid, ...snap.data() };
+            const s = normalizeProfile(user.uid, snap.data());
             setMyStats(s);
-            if (!isViewingOther.current) setViewedStats(s);
+            setViewedStats(previous => previous?.id && previous.id !== user.uid ? previous : s);
         });
         return () => unsub();
     }, []);
@@ -157,7 +197,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         const user = auth.currentUser;
         if (!user) return;
         const q = query(collection(db, 'users', user.uid, 'matchHistory'), orderBy('date', 'desc'), limit(20));
-        getDocs(q).then(snap => setMatchHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        getDocs(q).then(snap => setMatchHistory(snap.docs.map(d => ({ ...d.data(), id: d.id }) as MatchHistory)));
     }, []);
 
     // ── Load preference settings ──────────────────────────────────────────────
@@ -194,7 +234,6 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         if (activeTab !== 'analytics') return;
         const user = auth.currentUser;
         if (!user) return;
-        setIsLoadingHM(true);
         const unsub = onSnapshot(
             doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', 'default'),
             (snap) => {
@@ -212,16 +251,16 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     // ── Derived stats ─────────────────────────────────────────────────────────
     const stats = viewedStats;
     const level = stats ? Math.floor(Math.sqrt(Math.max(stats.xp || 0, 0) / 100)) + 1 : 1;
-    const avg   = stats?.totalDarts > 0 ? ((stats.totalPoints / stats.totalDarts) * 3).toFixed(1) : '—';
-    const f9avg = stats?.first9Darts > 0 ? ((stats.first9Points / stats.first9Darts) * 3).toFixed(1) : '—';
-    const coPct = stats?.checkoutAttempts > 0
-        ? Math.round((stats.checkoutSuccess / stats.checkoutAttempts) * 100)
+    const avg   = stats && stats.totalDarts > 0 ? ((stats.totalPoints / stats.totalDarts) * 3).toFixed(1) : '—';
+    const f9avg = stats && stats.first9Darts > 0 ? ((stats.first9Points / stats.first9Darts) * 3).toFixed(1) : '—';
+    const coPct = stats && stats.checkoutAttempts > 0
+        ? Math.min(100, Math.max(0, Math.round((stats.checkoutSuccess / stats.checkoutAttempts) * 100)))
         : 0;
-    const winRate = stats?.matchesPlayed > 0
-        ? Math.round((stats.matchesWon / stats.matchesPlayed) * 100)
+    const winRate = stats && stats.matchesPlayed > 0
+        ? Math.min(100, Math.max(0, Math.round((stats.matchesWon / stats.matchesPlayed) * 100)))
         : 0;
 
-    const getAvatar = (d: any) =>
+    const getAvatar = (d: ProfileStats | null) =>
         d?.selectedAvatar || d?.photoURL ||
         `https://api.dicebear.com/7.x/avataaars/svg?seed=${d?.name || 'Player'}&backgroundColor=0b0d11`;
 
@@ -277,8 +316,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
             const snap = await getDocs(query(collection(db, 'publicProfiles'), limit(30)));
             setSearchResults(
                 snap.docs
-                    .map(d => ({ id: d.id, ...d.data() }))
-                    .filter((u: any) =>
+                    .map(d => normalizeProfile(d.id, d.data()))
+                    .filter(u =>
                         u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                         `#${u.tag}` === searchQuery
                     )
@@ -287,8 +326,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         setIsSearching(false);
     };
 
-    const loadOtherUser = async (u: any) => {
-        isViewingOther.current = true;
+    const loadOtherUser = (u: ProfileStats) => {
+        setIsViewingOther(true);
         setViewedStats(u);
         setActiveTab('profile');
     };
@@ -325,10 +364,10 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                         <ArrowLeftIcon className="h-5 w-5 text-white" />
                     </button>
                     <h1 className="text-xl font-black text-white uppercase italic tracking-widest">
-                        {isViewingOther.current ? stats.name : 'Profil'}
+                        {isViewingOther ? stats.name : 'Profil'}
                     </h1>
-                    {isViewingOther.current ? (
-                        <button onClick={() => { isViewingOther.current = false; if (myStats) setViewedStats(myStats); }}
+                    {isViewingOther ? (
+                        <button onClick={() => { setIsViewingOther(false); if (myStats) setViewedStats(myStats); }}
                             className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-all">
                             <XMarkIcon className="h-5 w-5 text-white" />
                         </button>
@@ -358,14 +397,14 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                             {/* Avatar */}
                             <div className="flex flex-col items-center">
                                 <div className="relative group cursor-pointer mb-4"
-                                    onClick={() => !isViewingOther.current && setIsEditingAvatar(true)}>
+                                    onClick={() => !isViewingOther && setIsEditingAvatar(true)}>
                                     <img
                                         src={getAvatar(stats)}
                                         onError={e => { e.currentTarget.src = getAvatar(null); }}
                                         className="w-28 h-28 rounded-full border-4 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)] bg-slate-800 object-cover"
                                         alt="avatar"
                                     />
-                                    {!isViewingOther.current && (
+                                    {!isViewingOther && (
                                         <div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                             <PencilIcon className="h-7 w-7 text-white" />
                                         </div>
@@ -444,7 +483,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                             </div>
 
                             {/* ── Preferences / checkout settings ── */}
-                            {!isViewingOther.current && (
+                            {!isViewingOther && (
                             <div className="bg-[#12141a] rounded-[2rem] border border-slate-800 p-6">
                                 <h2 className="text-sm font-black text-white uppercase italic mb-5 flex items-center gap-2">
                                     <ShieldCheckIcon className="h-5 w-5 text-cyan-400" /> Játék Beállítások
@@ -522,7 +561,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                     className="bg-[#12141a] border border-slate-800 p-4 rounded-2xl flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-500/50 transition-colors">
                                     <div className="min-w-0">
                                         <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">
-                                            {(m.date?.toDate ? m.date.toDate() : new Date(m.date)).toLocaleDateString('hu-HU')} • {m.mode?.toUpperCase()}
+                                            {matchDate(m.date).toLocaleDateString('hu-HU')} • {m.mode?.toUpperCase()}
                                         </span>
                                         <span className="text-white font-black uppercase italic text-base block truncate">vs {m.opponent}</span>
                                         <span className="text-xs text-slate-400 font-bold">
@@ -710,7 +749,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                         </button>
                         <div className="text-center mb-6 border-b border-slate-800 pb-5">
                             <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-1">
-                                {(selectedMatch.date?.toDate ? selectedMatch.date.toDate() : new Date(selectedMatch.date)).toLocaleString('hu-HU')}
+                                {matchDate(selectedMatch.date).toLocaleString('hu-HU')}
                             </span>
                             <h2 className="text-2xl font-black text-white uppercase italic">vs {selectedMatch.opponent}</h2>
                             <div className="mt-3 inline-block bg-slate-900 border border-slate-700 px-6 py-2 rounded-xl">

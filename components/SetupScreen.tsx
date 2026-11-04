@@ -10,11 +10,32 @@ import {
     EyeSlashIcon, ChartBarIcon, UsersIcon, Cog6ToothIcon, ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import type { Language } from '@/app/page';
+import type { User } from 'firebase/auth';
+import type { Dart, PlayerData } from './MatchScreen';
 
 import { db, auth, googleProvider, appleProvider } from '../firebase'; 
 import { doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, orderBy, limit, getDocs, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { questsFor, readQuestProgress, type QuestProgress } from '../lib/quests';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
+type DisplayUser = User & { selectedAvatar?: string };
+type LeaderboardPlayer = { id: string; name?: string; xp?: number; weeklyXp?: number; photoURL?: string; selectedAvatar?: string; displayName?: string; email?: string };
+export type SavedMatch = {
+    config: MatchConfig;
+    players: PlayerData[];
+    activePlayer: number;
+    isLegWinner: boolean;
+    isSetWinner: boolean;
+    isMatchWinner: boolean;
+    currentDarts: Dart[];
+    inputMode?: 'detailed' | 'fast' | 'board';
+    checkoutStrategy?: 'safe' | 'pro';
+    asyncState?: 'playing' | 'waiting_leg' | 'waiting_match';
+    matchId?: string;
+    authUid?: string;
+    onlineLeg?: number;
+    resolvedLegNumber?: number;
+};
 export type PlayerConfig = { 
     name: string; 
     isBot: boolean; 
@@ -25,18 +46,25 @@ export type PlayerConfig = {
 };
 export type MatchConfig = { 
     gameMode: 'x01' | 'challenge' | 'practice' | 'career' | 'cricket';
-    practiceType?: 'around' | 'bobs27' | '121' | 'hunter' | 'math'; 
+    practiceType?: 'around' | 'bobs27' | '121' | 'hunter' | 'math' | 'ai_drill';
+    drillTarget?: number;
     players: PlayerConfig[]; 
     startingScore: number; 
     setsToWin: number; 
     legsToWin: number; 
-    checkIn: 'single' | 'double'; 
-    checkout: 'single' | 'double'; 
+    checkIn: 'single' | 'double' | 'master';
+    checkout: 'single' | 'double' | 'master';
     muteCaller: boolean; 
-    resumeState?: any; 
+    resumeState?: SavedMatch;
     challengeCode?: string; 
     careerStage?: number; 
     localRole?: 'host' | 'guest'; 
+    tournamentId?: string;
+    tournamentMatchId?: string;
+    tournamentPlayerIds?: [string, string];
+    isCustomTournamentMatch?: boolean;
+    isGroupMatch?: boolean;
+    dartSetupId?: string;
 };
 
 const CAREER_BOTS = [
@@ -58,12 +86,12 @@ const CAREER_BOTS = [
 ];
 
 const t = {
-  en: { setup: "Match Setup", local: "Local", challenge: "Versus", practice: "Practice", career: "Career", leagues: "Leagues", player: "Player", players: "Players", add: "Add Player", sets: "Sets (First To)", legs: "Legs (First To)", score: "Score", out: "Out", start: "Start Match", mute: "Mute Caller", sendCh: "Create & Host Match", recvCh: "Join Match", enterCode: "Enter DART-XXX code", coming: "Cloud Feature", careerStart: "Fight Next Opponent", lvl: "LVL", match: "Match", easyBot: "Easy", medBot: "Med", proBot: "Pro", champTitle: "World Championship", champWonTitle: "You're the Champion!", champWonDesc: "You defeated all 15 opponents.", leaguesTitle: "Global XP Leagues", leaguesDesc: "Play ranked matches to earn XP. Top 5 players promote to the next tier, bottom 5 demote. Prove yourself in the Gold League!", joinLeague: "Join League", targetHunter: "Target Hunter", c121Desc: "9 darts to checkout", dartsMath: "Darts Math", atcDesc: "1 to 20 sequentially", bobsDesc: "Hardcore Doubles", skip: "Skip", next: "Next", quests: "Missions", daily: "Daily", weekly: "Weekly", resetDaily: "Resets at Midnight", resetWeekly: "Resets on Monday", q1: "Hit 3x 140+", q2: "Checkout under 15 darts", q3: "Play 5 legs", login: "Sign In", loginDesc: "Save your stats and join the global leagues.", magicLink: "Send Magic Link", or: "OR", single: "Single", double: "Double", password: "Password", forgotPass: "Forgot Password?", 
+  en: { setup: "Match Setup", local: "Local", challenge: "Versus", practice: "Practice", career: "Career", leagues: "Leaderboard", player: "Player", players: "Players", add: "Add Player", sets: "Sets (First To)", legs: "Legs (First To)", score: "Score", out: "Out", start: "Start Match", mute: "Mute Caller", sendCh: "Create & Host Match", recvCh: "Join Match", enterCode: "Enter DART-XXX code", coming: "Cloud Feature", careerStart: "Fight Next Opponent", lvl: "LVL", match: "Match", easyBot: "Easy", medBot: "Med", proBot: "Pro", champTitle: "World Championship", champWonTitle: "You're the Champion!", champWonDesc: "You defeated all 15 opponents.", leaguesTitle: "Weekly XP leaderboard", leaguesDesc: "Follow this week's XP totals.", joinLeague: "View leaderboard", targetHunter: "Target Hunter", c121Desc: "9 darts to checkout", dartsMath: "Darts Math", atcDesc: "1 to 20 sequentially", bobsDesc: "Hardcore Doubles", skip: "Skip", next: "Next", quests: "Missions", daily: "Daily", weekly: "Weekly", resetDaily: "Resets at Midnight", resetWeekly: "Resets on Monday", q1: "Hit 3x 140+", q2: "Checkout under 15 darts", q3: "Play 5 matches", login: "Sign In", loginDesc: "Save your stats and join the weekly leaderboard.", magicLink: "Send Magic Link", or: "OR", single: "Single", double: "Double", password: "Password", forgotPass: "Forgot Password?",
     tut1Title: "3 Input Modes", tut1Desc: "Dartisan adapts to you. Choose the mode that fits your style during the match!", 
     tut2Title: "Fast vs Pro", tut2Desc: "FAST: Quick round sums (e.g. 100). PRO or BOARD: Dart-by-dart input for perfect stats and heatmap.", 
     tut3Title: "Smart Checkout", tut3Desc: "Bad at math? The built-in checkout guide leads you to the double. You can hide it anytime.", 
     resumeTitle: "Saved Match", resumeDesc: "Click to resume", resumeMatch: "Resume", abandon: "Abandon", waitingFriend: "Waiting for Opponent...", shareCode: "Share this code with your friend!", cancel: "Cancel", roomFull: "Room is full or already started!", team: "Team", individual: "Individual", handicap: "Custom Score", noHandicap: "Default", quickMatch: "🚀 Quick Match (501 vs AI)", tourBuilder: "Tournament Builder", tourDesc: "Create your own championship!" },
-  hu: { setup: "Mérkőzés", local: "Helyi", challenge: "Kihívás", practice: "Edzés", career: "Karrier", leagues: "Ligák", player: "Játékos", players: "Játékosok", add: "Hozzáadás", sets: "Szettek (Nyerig)", legs: "Legek (Nyerig)", score: "Pont", out: "Kiszálló", start: "Mérkőzés Indítása", mute: "Némítás", sendCh: "Szoba Létrehozása (Host)", recvCh: "Csatlakozás", enterCode: "Kód (DART-...)", coming: "Cloud Feature", careerStart: "Mérkőzés Indítása", lvl: "SZINT", match: "Mérkőzés", easyBot: "Easy", medBot: "Med", proBot: "Pro", champTitle: "Világbajnokság", champWonTitle: "Világbajnok Vagy!", champWonDesc: "Legyőzted az összes (15) ellenfelet az ágrajzon.", leaguesTitle: "Globális XP Ligák", leaguesDesc: "Játssz tétmeccseket és gyűjts XP-t! Heti 30 fős csoportok: a Top 5 feljut, az utolsó 5 kiesik. Juss fel az Arany Ligába!", joinLeague: "Csatlakozás a Ligához", targetHunter: "Célpont Vadász", c121Desc: "9 nyíl a kiszállóra", dartsMath: "Darts Math", atcDesc: "1-től 20-ig sorban", bobsDesc: "Dupla Edzés", skip: "Kihagyás", next: "Tovább", quests: "Küldetések", daily: "Napi Feladatok", weekly: "Heti Feladatok", resetDaily: "Frissül: Éjfélkor", resetWeekly: "Frissül: Hétfőn", q1: "Dobj 3db 140+-t", q2: "Kiszálló 15 nyíl alatt", q3: "Játssz le 5 leget", login: "Bejelentkezés", loginDesc: "Mentsd el a statisztikáidat és csatlakozz a ligákhoz.", magicLink: "Belépés Mágikus Linkkel", or: "VAGY", single: "Sima", double: "Dupla", password: "Jelszó", forgotPass: "Elfelejtetted a jelszavad?", 
+  hu: { setup: "Mérkőzés", local: "Helyi", challenge: "Kihívás", practice: "Edzés", career: "Karrier", leagues: "Ranglista", player: "Játékos", players: "Játékosok", add: "Hozzáadás", sets: "Szettek (Nyerig)", legs: "Legek (Nyerig)", score: "Pont", out: "Kiszálló", start: "Mérkőzés Indítása", mute: "Némítás", sendCh: "Szoba Létrehozása (Host)", recvCh: "Csatlakozás", enterCode: "Kód (DART-...)", coming: "Cloud Feature", careerStart: "Mérkőzés Indítása", lvl: "SZINT", match: "Mérkőzés", easyBot: "Easy", medBot: "Med", proBot: "Pro", champTitle: "Világbajnokság", champWonTitle: "Világbajnok Vagy!", champWonDesc: "Legyőzted az összes (15) ellenfelet az ágrajzon.", leaguesTitle: "Heti XP ranglista", leaguesDesc: "Kövesd az aktuális hét XP eredményeit.", joinLeague: "Ranglista megtekintése", targetHunter: "Célpont Vadász", c121Desc: "9 nyíl a kiszállóra", dartsMath: "Darts Math", atcDesc: "1-től 20-ig sorban", bobsDesc: "Dupla Edzés", skip: "Kihagyás", next: "Tovább", quests: "Küldetések", daily: "Napi Feladatok", weekly: "Heti Feladatok", resetDaily: "Frissül: Éjfélkor", resetWeekly: "Frissül: Hétfőn", q1: "Dobj 3db 140+-t", q2: "Kiszálló 15 nyíl alatt", q3: "Játssz le 5 meccset", login: "Bejelentkezés", loginDesc: "Mentsd el a statisztikáidat és kerülj fel a heti ranglistára.", magicLink: "Belépés Mágikus Linkkel", or: "VAGY", single: "Sima", double: "Dupla", password: "Jelszó", forgotPass: "Elfelejtetted a jelszavad?",
     tut1Title: "3 Beviteli Mód", tut1Desc: "A Dartisan alkalmazkodik hozzád. Válaszd ki a számodra legkényelmesebb módot a meccs közben!", 
     tut2Title: "Fast vs Pro", tut2Desc: "FAST: Gyors körösszeg (pl. beírod: 100). PRO vagy TÁBLA: Nyilonkénti bevitel a tökéletes statisztikákhoz és hőtérképhez.", 
     tut3Title: "Kiszálló Segéd", tut3Desc: "Nem megy fejben a matek? A beépített okos kiszálló ajánló végigvezet a duplákig. Bármikor elrejtheted a meccs alatt egy gombnyomással.", 
@@ -71,6 +99,7 @@ const t = {
 };
 
 const COLORS: PlayerColor[] = ['emerald', 'rose', 'cyan', 'amber', 'purple'];
+const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
 
 interface SetupScreenProps {
   lang: Language;
@@ -82,7 +111,6 @@ interface SetupScreenProps {
   onOpenClub: () => void;
   userLevel?: number; // <- ÚJ: Külső state a page.tsx-ből
   userStreak?: number; // <- ÚJ: Külső state a page.tsx-ből
-  currentUser?: any;
 }
 
 export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
@@ -92,75 +120,45 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   const [score, setScore] = useState(501);
   const [sets, setSets] = useState(1);
   const [legs, setLegs] = useState(3);
-  const [checkIn, setCheckIn] = useState<'single' | 'double'>('single');
-  const [checkout, setCheckout] = useState<'single' | 'double'>(() =>
+  const [checkIn, setCheckIn] = useState<'single' | 'double' | 'master'>('single');
+  const [checkout, setCheckout] = useState<'single' | 'double' | 'master'>(() =>
     typeof window !== 'undefined' && localStorage.getItem('dartisan_checkout') === 'single' ? 'single' : 'double'
   );
   const [muteCaller, setMuteCaller] = useState(false);
   const [challengeCode, setChallengeCode] = useState('');
   const [practiceType, setPracticeType] = useState<'around' | 'bobs27' | '121' | 'hunter' | 'math'>('121');
   
-  const [careerStage, setCareerStage] = useState(0);
+  const [careerStage] = useState(() => {
+      const saved = typeof window !== 'undefined' ? Number(localStorage.getItem('dartisan_career_stage')) : 0;
+      return Number.isInteger(saved) ? Math.max(0, Math.min(15, saved)) : 0;
+  });
   const [showQuests, setShowQuests] = useState(false);
   
   // --- NAPI ÉS HETI KÜLDETÉSEK LOGIKÁJA ---
-  const [dailyQuests, setDailyQuests] = useState<any[]>([]);
-  const [weeklyQuests, setWeeklyQuests] = useState<any[]>([]);
-
-  useEffect(() => {
-      if (typeof window !== 'undefined') {
-          const now = new Date();
-          const today = now.toISOString().split('T')[0];
-          
-          // Számoljuk ki a hétfőt a heti küldetésekhez
-          const dayOfWeek = now.getDay();
-          const diffToMonday = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-          const mondayDate = new Date(now.setDate(diffToMonday)).toISOString().split('T')[0];
-
-          const savedDailyDate = localStorage.getItem('dartisan_quests_daily_date');
-          const savedWeeklyDate = localStorage.getItem('dartisan_quests_weekly_date');
-          
-          // NAPI RESET
-          if (savedDailyDate !== today) {
-              const newDailies = [
-                  { id: 1, title: lang === 'hu' ? "Dobj 3db 140+-t" : "Hit 3x 140+", reward: 50, completed: false, current: 0, target: 3 },
-                  { id: 2, title: lang === 'hu' ? "Kiszálló 15 nyíl alatt" : "Checkout < 15 darts", reward: 100, completed: false, current: 0, target: 1 },
-                  { id: 3, title: lang === 'hu' ? "Játssz le 5 leget" : "Play 5 legs", reward: 20, completed: false, current: 0, target: 5 },
-              ];
-              localStorage.setItem('dartisan_quests_daily_date', today);
-              localStorage.setItem('dartisan_quests_daily_data', JSON.stringify(newDailies));
-              setDailyQuests(newDailies);
-          } else {
-              setDailyQuests(JSON.parse(localStorage.getItem('dartisan_quests_daily_data') || '[]'));
-          }
-
-          // HETI RESET
-          if (savedWeeklyDate !== mondayDate) {
-              const newWeeklies = [
-                  { id: 101, title: lang === 'hu' ? "Nyerj meg 20 leget" : "Win 20 legs", reward: 500, completed: false, current: 0, target: 20 },
-                  { id: 102, title: lang === 'hu' ? "Teljesíts 10 meccset AI ellen" : "Play 10 matches vs AI", reward: 800, completed: false, current: 0, target: 10 }
-              ];
-              localStorage.setItem('dartisan_quests_weekly_date', mondayDate);
-              localStorage.setItem('dartisan_quests_weekly_data', JSON.stringify(newWeeklies));
-              setWeeklyQuests(newWeeklies);
-          } else {
-              setWeeklyQuests(JSON.parse(localStorage.getItem('dartisan_quests_weekly_data') || '[]'));
-          }
-      }
-  }, [showQuests, lang]);
+  const [questProgress, setQuestProgress] = useState<QuestProgress>(() =>
+      typeof window !== 'undefined' ? readQuestProgress(localStorage) : { day: '', week: '', daily: {}, weekly: {}, seen: [] }
+  );
+  const { daily: dailyQuests, weekly: weeklyQuests } = questsFor(questProgress, lang);
 
   const [showAuth, setShowAuth] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => typeof window !== 'undefined' && !localStorage.getItem('dartisan_tutorial_done'));
   const [tutStep, setTutStep] = useState(1);
 
   const [isCreatingMatch, setIsCreatingMatch] = useState(false);
   const [isJoiningMatch, setIsJoiningMatch] = useState(false);
   const [hostedCode, setHostedCode] = useState<string | null>(null); 
-  const [savedMatch, setSavedMatch] = useState<any>(null); 
+  const [savedMatch, setSavedMatch] = useState<SavedMatch | null>(() => {
+      if (typeof window === 'undefined') return null;
+      try {
+          const saved = JSON.parse(localStorage.getItem('dartisan_save') || 'null');
+          return saved && saved.config && Array.isArray(saved.players) && Number.isInteger(saved.activePlayer)
+              ? saved as SavedMatch : null;
+      } catch { return null; }
+  });
 
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<DisplayUser | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [emailInput, setEmailInput] = useState('');
@@ -178,18 +176,9 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       .catch((error) => { console.error('Email link sign-in:', error); alert(lang === 'hu' ? 'A belépési link érvénytelen vagy lejárt.' : 'The sign-in link is invalid or expired.'); });
   }, [lang]);
 
-  const getAvatar = (user: any) => user?.selectedAvatar || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || user?.email?.split('@')[0] || 'Player'}&backgroundColor=0b0d11`;
+  const getAvatar = (user: DisplayUser | LeaderboardPlayer | null) => user?.selectedAvatar || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || user?.email?.split('@')[0] || 'Player'}&backgroundColor=0b0d11`;
 
   useEffect(() => {
-    if (!localStorage.getItem('dartisan_tutorial_done')) {
-        setShowTutorial(true);
-    }
-    const stage = localStorage.getItem('dartisan_career_stage');
-    if (stage) setCareerStage(parseInt(stage));
-    
-    const sMatch = localStorage.getItem('dartisan_save');
-    if (sMatch) setSavedMatch(JSON.parse(sMatch));
-
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         if (user && !user.isAnonymous) {
             const docRef = doc(db, 'users', user.uid);
@@ -235,7 +224,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 });
             } else { 
                 const data = docSnap.data(); 
-                if (data.lastWeek !== currentWeek) {
+                if (!SERVER_MATCH_ENABLED && data.lastWeek !== currentWeek) {
                     await updateDoc(docRef, { weeklyXp: 0, lastWeek: currentWeek });
                 }
             }
@@ -285,28 +274,35 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   const txt = t[lang];
 
   const handleEmailLogin = async () => {
-      if (!emailInput || !passwordInput) return alert("Kérlek töltsd ki az e-mailt és a jelszót!");
+      if (!emailInput.trim() || !passwordInput) return alert(lang === 'hu' ? 'Add meg az e-mail címet és a jelszót.' : 'Enter your email and password.');
       setIsLoggingIn(true);
       try {
-          await signInWithEmailAndPassword(auth, emailInput, passwordInput);
+          await signInWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
           setShowAuth(false);
           setEmailInput('');
           setPasswordInput('');
-      } catch (error: any) {
-          if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-              try {
-                  await createUserWithEmailAndPassword(auth, emailInput, passwordInput);
-                  setShowAuth(false);
-                  setEmailInput('');
-                  setPasswordInput('');
-              } catch (regError: any) {
-                  alert("Hiba a regisztráció során: " + regError.message);
-              }
-          } else {
-              alert("Hiba: " + error.message);
-          }
+      } catch (error) {
+          console.error('Email sign-in:', error);
+          alert(lang === 'hu' ? 'A belépés nem sikerült. Ellenőrizd az e-mail címet és a jelszót.' : 'Sign-in failed. Check your email and password.');
       }
       setIsLoggingIn(false);
+  };
+
+  const handleEmailRegister = async () => {
+      if (!emailInput.trim() || passwordInput.length < 6) {
+          alert(lang === 'hu' ? 'Adj meg egy e-mail címet és legalább 6 karakteres jelszót.' : 'Enter an email and a password of at least 6 characters.');
+          return;
+      }
+      setIsLoggingIn(true);
+      try {
+          await createUserWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
+          setShowAuth(false);
+          setEmailInput('');
+          setPasswordInput('');
+      } catch (error) {
+          console.error('Email registration:', error);
+          alert(lang === 'hu' ? 'A regisztráció nem sikerült. Ellenőrizd az adatokat, vagy próbálj belépni.' : 'Registration failed. Check your details or try signing in.');
+      } finally { setIsLoggingIn(false); }
   };
 
   const handleGoogleLogin = async () => { 
@@ -367,6 +363,26 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       return auth.currentUser || (await signInAnonymously(auth)).user;
   };
 
+  const handleResumeMatch = async () => {
+      if (!savedMatch) return;
+      if (savedMatch.config?.gameMode === 'challenge' && savedMatch.config.challengeCode) {
+          try {
+              await auth.authStateReady();
+              const user = auth.currentUser;
+              if (!user || user.uid !== savedMatch.authUid) throw new Error('identity-mismatch');
+              const room = await getDoc(doc(db, 'matches', savedMatch.config.challengeCode));
+              if (!room.exists() || room.data().status !== 'playing' ||
+                  (room.data().hostUid !== user.uid && room.data().guestUid !== user.uid)) throw new Error('room-unavailable');
+          } catch (error) {
+              console.error('Online resume failed', error);
+              alert(lang === 'hu' ? 'A meccs folytatásához ugyanazzal a fiókkal jelentkezz be, és ellenőrizd, hogy a szoba még elérhető-e.' : 'Sign in with the same account and make sure the room is still available.');
+              return;
+          }
+      }
+      onStart({ ...savedMatch.config, resumeState: savedMatch });
+      setSavedMatch(null);
+  };
+
   const handleHostMatch = async () => {
       setIsCreatingMatch(true); 
       try { 
@@ -379,7 +395,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
               status: 'waiting', 
               config: { startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout }, 
               state: { currentLeg: 1, currentSet: 1, hostDarts: null, guestDarts: null, hostSetsWon: 0, guestSetsWon: 0, hostLegsWon: 0, guestLegsWon: 0, winner: null }, 
-              hostName: players[0].name, 
+              hostName: players[0].name.trim().slice(0, 40) || 'Host',
               hostUid: user.uid,
               guestName: null, 
               guestUid: null,
@@ -422,7 +438,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
               const room = matchSnap.data();
               if (room.status !== 'waiting') throw new Error('room-unavailable');
               if (room.hostUid === user.uid) throw new Error('room-unavailable');
-              transaction.update(roomRef, { status: 'playing', guestName: players[0].name, guestUid: user.uid });
+              transaction.update(roomRef, { status: 'playing', guestName: players[0].name.trim().slice(0, 40) || 'Guest', guestUid: user.uid });
               return room;
           });
           onStart({
@@ -454,7 +470,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
               <span className="text-emerald-900 font-bold text-xs">{txt.resumeDesc}</span>
           </div>
           <div className="flex gap-2">
-              <button onClick={() => { onStart({ ...savedMatch.config, resumeState: savedMatch }); setSavedMatch(null); }} className="bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95">{txt.resumeMatch}</button>
+              <button onClick={handleResumeMatch} className="bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95">{txt.resumeMatch}</button>
               <button onClick={() => { localStorage.removeItem('dartisan_save'); setSavedMatch(null); }} className="bg-emerald-600 text-emerald-900 px-3 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95"><XMarkIcon className="h-5 w-5"/></button>
           </div>
        </div>
@@ -517,9 +533,14 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                             <button onClick={handleMagicLink} disabled={isLoggingIn} className="text-[10px] font-black text-emerald-500 uppercase hover:underline disabled:opacity-50">{txt.magicLink}</button>
                             <button onClick={handlePasswordReset} disabled={isLoggingIn} className="text-[10px] font-black text-slate-500 uppercase hover:text-slate-300 disabled:opacity-50">{txt.forgotPass}</button>
                         </div>
-                        <button onClick={handleEmailLogin} disabled={isLoggingIn} className="w-full h-14 bg-emerald-500 text-slate-900 rounded-xl font-black uppercase tracking-widest disabled:opacity-50 hover:bg-emerald-400 active:scale-95 transition-all">
-                            {isLoggingIn ? 'Betöltés...' : 'Bejelentkezés / Reg.'}
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button onClick={handleEmailLogin} disabled={isLoggingIn} className="h-14 bg-emerald-500 text-slate-900 rounded-xl font-black uppercase tracking-wider text-xs disabled:opacity-50 hover:bg-emerald-400 active:scale-95 transition-all">
+                                {isLoggingIn ? '…' : lang === 'hu' ? 'Belépés' : 'Sign in'}
+                            </button>
+                            <button onClick={handleEmailRegister} disabled={isLoggingIn} className="h-14 bg-slate-800 text-white border border-slate-600 rounded-xl font-black uppercase tracking-wider text-xs disabled:opacity-50 hover:bg-slate-700 active:scale-95 transition-all">
+                                {isLoggingIn ? '…' : lang === 'hu' ? 'Regisztráció' : 'Register'}
+                            </button>
+                        </div>
                         <div className="flex items-center gap-4 my-2 opacity-50"><div className="flex-1 h-px bg-slate-700"></div><span className="text-[10px] font-black uppercase">{txt.or}</span><div className="flex-1 h-px bg-slate-700"></div></div>
                         <button onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full h-14 bg-white text-slate-900 rounded-xl font-black flex items-center justify-center gap-3 hover:bg-slate-200 transition-colors disabled:opacity-50 active:scale-95">
                             <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> 
@@ -540,7 +561,8 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           <div className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-16 pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
               <button onClick={() => setShowQuests(false)} className="absolute top-6 right-6 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-8 w-8" /></button>
               <ListBulletIcon className="h-12 w-12 text-cyan-400 mb-2" />
-              <h2 className="text-3xl font-black text-white uppercase italic mb-8 tracking-tighter">{txt.quests}</h2>
+              <h2 className="text-3xl font-black text-white uppercase italic mb-2 tracking-tighter">{txt.quests}</h2>
+              <p className="text-xs text-slate-400 text-center mb-8 max-w-sm">{lang === 'hu' ? 'A célok ezen a készüléken követhetők. A teljesítés jelenleg nem ad XP-t.' : 'Progress is tracked on this device. Completing a goal does not award XP yet.'}</p>
               
               <div className="w-full max-w-sm flex flex-col gap-8">
                   {/* Napi szekció */}
@@ -554,7 +576,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                               <div key={q.id} className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl flex flex-col gap-2">
                                   <div className="flex items-center justify-between">
                                       <span className="text-white font-bold text-sm">{q.title}</span>
-                                      <span className="text-amber-400 font-black text-xs">+{q.reward} XP</span>
+                                      {q.completed && <span className="font-black text-emerald-400 text-xs">✓</span>}
                                   </div>
                                   <div className="flex items-center gap-3">
                                       <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -578,7 +600,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                               <div key={q.id} className="bg-slate-900/80 border border-slate-700/50 p-4 rounded-2xl flex flex-col gap-2 shadow-lg shadow-purple-500/5">
                                   <div className="flex items-center justify-between">
                                       <span className="text-white font-bold text-sm">{q.title}</span>
-                                      <span className="text-amber-400 font-black text-xs">+{q.reward} XP</span>
+                                      {q.completed && <span className="font-black text-emerald-400 text-xs">✓</span>}
                                   </div>
                                   <div className="flex items-center gap-3">
                                       <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -606,7 +628,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
             </div>
         </div>
         <div className="flex items-center gap-2">
-            <button onClick={() => setShowQuests(true)} className="p-1.5 bg-cyan-500/10 rounded-xl text-cyan-400 border border-cyan-500/20"><ListBulletIcon className="h-5 w-5" /></button>
+            <button onClick={() => { setQuestProgress(readQuestProgress(localStorage)); setShowQuests(true); }} className="p-1.5 bg-cyan-500/10 rounded-xl text-cyan-400 border border-cyan-500/20"><ListBulletIcon className="h-5 w-5" /></button>
             <div className="flex items-center gap-1 text-amber-500 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20 relative">
                 <FireIcon className="h-4 w-4 fill-amber-500" /> <span className="text-xs font-black">{userStreak}</span>
             </div>
@@ -615,12 +637,12 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
         </div>
       </div>
 
-      <div className="w-full max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)] xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6 lg:gap-10 items-start">
-      <section className="w-full flex flex-col items-center md:items-stretch md:sticky md:top-24">
-      <header className="mb-6 text-center md:text-left shrink-0">
+      <div className="w-full max-w-6xl mx-auto grid grid-cols-1 gap-6 lg:gap-8 items-start">
+      <section className="w-full flex flex-col items-center lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
+      <header className="mb-6 text-center lg:text-left shrink-0 lg:col-span-2">
         <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-1 block">DARTISAN</span>
         <h1 className="text-4xl lg:text-6xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
-        <p className="hidden md:block text-sm text-slate-400 font-medium mt-3 max-w-md">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
+        <p className="hidden sm:block text-sm text-slate-400 font-medium mt-3 max-w-2xl">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
       </header>
 
       {/* --- QUICK START GOMB --- */}
@@ -639,13 +661,13 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 checkout: 'double', 
                 muteCaller: muteCaller 
             })} 
-            className="w-full h-14 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform"
+            className="w-full h-16 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform lg:col-start-1 lg:row-start-2"
         >
             {txt.quickMatch}
         </button>
       )}
 
-      <div className="w-full flex flex-col gap-2 mb-6">
+      <div className="w-full flex flex-col gap-2 mb-6 lg:col-start-2 lg:row-start-2 lg:row-span-2">
           <div className="flex bg-[#12141a] rounded-xl p-1 border border-slate-800 shadow-lg">
             <button onClick={() => setTab('x01')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'x01' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.local}</button>
             <button onClick={() => setTab('challenge')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'challenge' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.challenge}</button>
@@ -664,7 +686,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           </div>
       </div>
 
-      <button onClick={onStartTournament} className="w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0">
+      <button onClick={onStartTournament} className={`w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0 lg:col-start-1 ${tab === 'x01' ? 'lg:row-start-3' : 'lg:row-start-2'}`}>
           <div className="flex items-center gap-4">
               <TrophyIcon className="h-7 w-7 group-hover:scale-110 transition-transform" />
               <div className="flex flex-col items-start">
@@ -676,10 +698,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
       </button>
       </section>
 
-      <div className="w-full min-w-0 bg-[#12141a] rounded-[2rem] p-5 sm:p-6 lg:p-8 border border-slate-800 shadow-2xl flex flex-col mb-8">
+      <div className={`w-full min-w-0 bg-[#12141a] rounded-[2rem] p-5 sm:p-6 lg:p-8 border border-slate-800 shadow-2xl flex flex-col mb-8 ${tab === 'x01' || tab === 'challenge' ? '' : 'lg:max-w-4xl lg:mx-auto'}`}>
         
         {(tab === 'x01' || tab === 'challenge') && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-x-10">
             <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 block ml-1">{tab === 'challenge' ? 'A Te Neved' : txt.players}</label>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -754,6 +776,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 </div>
             </div>
 
+            <div className="flex flex-col gap-6">
             <div className="flex gap-4">
                 <div className="flex-1">
                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 block">{txt.sets}</label>
@@ -773,15 +796,21 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 <div className="flex-1">
                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 block">{txt.score}</label>
                     <div className="grid grid-cols-2 gap-1">
-                        {[301, 501].map(s => <button key={s} onClick={() => setScore(s)} className={`h-12 rounded-xl font-black text-sm transition-all ${score === s ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{s}</button>)}
+                        {[301, 501, 701, 1001].map(s => <button key={s} onClick={() => setScore(s)} aria-pressed={score === s} className={`h-12 rounded-xl font-black text-sm transition-all ${score === s ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{s}</button>)}
                     </div>
                 </div>
                 <div className="flex-1">
                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 block">{txt.out}</label>
-                    <div className="grid grid-cols-2 gap-1">
-                        <button onClick={() => setCheckout('single')} className={`h-12 rounded-xl font-black text-[10px] uppercase transition-all ${checkout === 'single' ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{txt.single}</button>
-                        <button onClick={() => setCheckout('double')} className={`h-12 rounded-xl font-black text-[10px] uppercase transition-all ${checkout === 'double' ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{txt.double}</button>
+                    <div className="grid grid-cols-3 gap-1">
+                        {(['single', 'double', 'master'] as const).map(rule => <button key={rule} onClick={() => setCheckout(rule)} aria-pressed={checkout === rule} className={`h-12 rounded-xl font-black text-[10px] uppercase transition-all ${checkout === rule ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{rule === 'single' ? txt.single : rule === 'double' ? txt.double : 'Master'}</button>)}
                     </div>
+                </div>
+            </div>
+
+            <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 block">{lang === 'hu' ? 'Beszálló szabály' : 'Entry rule'}</label>
+                <div className="grid grid-cols-3 gap-1">
+                    {(['single', 'double', 'master'] as const).map(rule => <button key={rule} onClick={() => setCheckIn(rule)} aria-pressed={checkIn === rule} className={`h-12 rounded-xl font-black text-[10px] uppercase transition-all ${checkIn === rule ? 'bg-[#10b981] text-slate-950 shadow-md' : 'bg-[#0b0d11] text-slate-400 border border-slate-800 hover:bg-slate-800'}`}>{rule === 'single' ? txt.single : rule === 'double' ? txt.double : 'Master'}</button>)}
                 </div>
             </div>
 
@@ -813,6 +842,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                     </div>
                 </div>
             )}
+            </div>
           </div>
         )}
 
@@ -824,7 +854,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                         Around Clock<br/><span className="text-[8px] font-bold opacity-70">{txt.atcDesc}</span>
                     </button>
                     <button onClick={() => setPracticeType('bobs27')} className={`h-16 rounded-xl font-black uppercase text-[10px] border transition-all ${practiceType === 'bobs27' ? 'bg-cyan-500 text-slate-900 border-cyan-400 shadow-lg' : 'bg-[#0b0d11] text-slate-400 border-slate-800 hover:bg-slate-800'}`}>
-                        Bob's 27<br/><span className="text-[8px] font-bold opacity-70">{txt.bobsDesc}</span>
+                        Bob&apos;s 27<br/><span className="text-[8px] font-bold opacity-70">{txt.bobsDesc}</span>
                     </button>
                 </div>
 
@@ -873,7 +903,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                         <h3 className="text-3xl font-black text-white italic uppercase relative z-10">{lang === 'en' ? CAREER_BOTS[careerStage].nameEn : CAREER_BOTS[careerStage].nameHu}</h3>
                         <p className="text-[10px] font-bold text-[#b655ff] uppercase tracking-widest mt-1 mb-6 relative z-10">Szint: {CAREER_BOTS[careerStage].difficulty} (Átlag: {CAREER_BOTS[careerStage].avg})</p>
                         <ul className="text-xs text-slate-300 font-bold relative z-10 flex flex-col gap-3">
-                            <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? 'Egyenes kieséses ágrajz.' : 'Single elimination bracket.'}</span></li>
+                            <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? '15 egymást követő ellenfél.' : 'Fifteen opponents in sequence.'}</span></li>
                             <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? 'Játssz le egy 501-es mérkőzést a gép ellen. Ha nyersz, továbbjutsz.' : 'Play a 501 match against the bot. Win to advance.'}</span></li>
                             <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? 'A gép a fenti nehézségnek megfelelő átlagot dobja.' : 'The bot throws at its designated average.'}</span></li>
                         </ul>

@@ -1,21 +1,23 @@
 {
-    "name": "Dartisan Darts Assistant",
+    "name": "Dartisan – darts szimulátor",
     "short_name": "Dartisan",
-    "description": "Prémium darts pontszámláló és statisztikai alkalmazás.",
+    "description": "Darts meccsek, edzések és statisztikák egy helyen.",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#0b0d11",
     "theme_color": "#10b981",
     "icons": [
       {
-        "src": "/icons/apple.svg",
+        "src": "/icons/dartisan-192.png",
         "sizes": "192x192",
-        "type": "image/svg+xml"
+        "type": "image/png",
+        "purpose": "any maskable"
       },
       {
-        "src": "/icons/apple.svg",
+        "src": "/icons/dartisan-512.png",
         "sizes": "512x512",
-        "type": "image/svg+xml"
+        "type": "image/png",
+        "purpose": "any maskable"
       }
     ]
   }

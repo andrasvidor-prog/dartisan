@@ -7,8 +7,10 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 type GoalType = 'scoring' | 'checkout' | 'first9';
+type TaskMode = NonNullable<MatchConfig['practiceType']> | 'x01' | 'rest' | 'custom';
+type TrainingTask = { day: number; title: string; mode: TaskMode; desc: string; id?: number };
 
-const TRAINING_PLANS = {
+const TRAINING_PLANS: Record<GoalType, TrainingTask[]> = {
     scoring: [
         { day: 1, title: 'Bemelegítő ATC', mode: 'around', desc: 'Dobj 1-től 20-ig.' },
         { day: 2, title: 'Darts Math', mode: 'math', desc: 'Agytréning kivonásokhoz.' },
@@ -38,10 +40,10 @@ const TRAINING_PLANS = {
     ]
 };
 
-export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartDrill: (config: Partial<MatchConfig>) => void }) {
+export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartDrill: (config: MatchConfig) => void }) {
     const [goal, setGoal] = useState<GoalType | null>(null);
     const [completedDays, setCompletedDays] = useState<number[]>([]);
-    const [customTasks, setCustomTasks] = useState<any[]>([]);
+    const [customTasks, setCustomTasks] = useState<TrainingTask[]>([]);
     const [loading, setLoading] = useState(true);
     const [newCustomTask, setNewCustomTask] = useState('');
 
@@ -62,7 +64,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
         fetchCoachData();
     }, []);
 
-    const saveCoachData = async (newGoal: GoalType | null, newCompleted: number[], newCustom: any[]) => {
+    const saveCoachData = async (newGoal: GoalType | null, newCompleted: number[], newCustom: TrainingTask[]) => {
         const user = auth.currentUser;
         if (user && !user.isAnonymous) {
             await setDoc(doc(db, 'users', user.uid, 'coach', 'plan'), { goal: newGoal, completedDays: newCompleted, customTasks: newCustom }, { merge: true });
@@ -81,25 +83,25 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
 
     const addCustomTask = () => {
         if (!newCustomTask.trim()) return;
-        const newTask = { day: customTasks.length + 8, title: newCustomTask, mode: 'custom', desc: 'Saját felvitt edzés', id: Date.now() };
+        const newTask: TrainingTask = { day: customTasks.length + 8, title: newCustomTask, mode: 'custom', desc: 'Saját felvitt edzés', id: Date.now() };
         saveCoachData(goal, completedDays, [...customTasks, newTask]);
         setNewCustomTask('');
     };
 
-    const handleStartTask = (task: any, idx: number) => {
+    const handleStartTask = (task: TrainingTask, idx: number) => {
         if (task.mode === 'rest' || task.mode === 'custom') {
             toggleDay(idx);
             return;
         }
-        const config: Partial<MatchConfig> = {
+        const config: MatchConfig = {
             gameMode: task.mode === 'x01' ? 'x01' : 'practice',
-            practiceType: task.mode !== 'x01' ? (task.mode as any) : undefined,
+            practiceType: task.mode !== 'x01' ? task.mode : undefined,
             startingScore: task.mode === 'x01' ? 501 : (task.mode === '121' ? 121 : 0),
             setsToWin: 1, legsToWin: task.mode === 'x01' ? 3 : 1,
-            checkIn: 'single', checkout: task.mode === 'x01' ? 'double' : 'single',
+            checkIn: 'single', checkout: task.mode === 'x01' ? 'double' : 'single', muteCaller: false,
             players: [{ name: auth.currentUser?.displayName || 'Játékos', isBot: false, difficulty: 5, color: 'cyan' }]
         };
-        if (task.mode === 'x01') config.players?.push({ name: 'AI Edzőpartner', isBot: true, difficulty: 6, color: 'purple' });
+        if (task.mode === 'x01') config.players.push({ name: 'AI Edzőpartner', isBot: true, difficulty: 6, color: 'purple' });
         
         // Ha elindítja, pipáljuk ki előre (motiváció)
         if (!completedDays.includes(idx)) toggleDay(idx);
@@ -124,8 +126,8 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
             </header>
 
             {!goal ? (
-                <div className="flex flex-col gap-4 max-w-md mx-auto w-full">
-                    <p className="text-slate-400 text-sm font-bold text-center mb-4">Válaszd ki a heti fókuszodat!</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto w-full">
+                    <p className="text-slate-400 text-sm font-bold text-center mb-4 md:col-span-3">Válaszd ki a heti fókuszodat!</p>
                     {['scoring', 'checkout', 'first9'].map((g) => (
                         <button key={g} onClick={() => saveCoachData(g as GoalType, [], [])} className="p-6 rounded-3xl bg-[#12141a] border border-cyan-500/30 text-left hover:border-cyan-400 transition-all shadow-lg">
                             <h3 className="text-xl font-black text-white uppercase">{g === 'scoring' ? 'Tömegdobás' : g === 'checkout' ? 'Kiszállók' : 'Első 9 Nyíl'}</h3>
@@ -133,7 +135,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                     ))}
                 </div>
             ) : (
-                <div className="flex flex-col gap-4 max-w-md mx-auto w-full">
+                <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full">
                     {/* Progress Bar (3. Pont) */}
                     <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl shadow-lg">
                         <div className="flex items-center justify-between mb-2">

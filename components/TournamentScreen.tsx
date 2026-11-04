@@ -176,7 +176,7 @@ export function TournamentScreen({ onBack, onStartTournament }: TournamentScreen
                         <div className="bg-[#12141a] p-6 rounded-3xl border border-slate-800 shadow-xl flex items-center justify-between cursor-pointer group" onClick={() => {triggerHaptic(); setAllowQuickEntry(!allowQuickEntry)}}>
                             <div className="flex flex-col pr-4">
                                 <span className="text-sm font-black text-white uppercase flex items-center gap-2"><BoltIcon className="h-5 w-5 text-cyan-400" /> Gyors Eredményrögzítés</span>
-                                <span className="text-[10px] text-slate-400 font-bold mt-1 leading-relaxed">Ha aktiválod, egyetlen gombnyomással (pl. "2-1, átlag 68") is felviheted a külső táblákon játszott meccsek eredményét, anélkül, hogy a táblagépbe dobásonként pötyögnéd be.</span>
+                                <span className="text-[10px] text-slate-400 font-bold mt-1 leading-relaxed">Ha aktiválod, egyetlen gombnyomással (pl. &quot;2-1, átlag 68&quot;) is felviheted a külső táblákon játszott meccsek eredményét, anélkül, hogy a táblagépbe dobásonként pötyögnéd be.</span>
                             </div>
                             <div className={`w-14 h-8 rounded-full p-1 transition-colors duration-300 shrink-0 ${allowQuickEntry ? 'bg-cyan-500' : 'bg-slate-700'}`}>
                                 <div className={`w-6 h-6 bg-white rounded-full transition-transform duration-300 ${allowQuickEntry ? 'translate-x-6' : 'translate-x-0'}`}></div>
@@ -233,7 +233,7 @@ export function TournamentScreen({ onBack, onStartTournament }: TournamentScreen
                                             <TrophyIcon className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                                             <div className="flex flex-col">
                                                 <span className="text-amber-500 font-black uppercase text-[10px]">Tipp: Automatikus Erőnyerők</span>
-                                                <span className="text-slate-400 font-bold text-[9px] mt-1">A sorsoláshoz páros ágrajz szükséges (pl. 4, 8, 16). Jelenleg {players.length} játékosod van, így a rendszer automatikusan {byesNeeded} db "Erőnyerő" (Bye) pozíciót fog kiosztani az első körben.</span>
+                                                <span className="text-slate-400 font-bold text-[9px] mt-1">A sorsoláshoz páros ágrajz szükséges (pl. 4, 8, 16). Jelenleg {players.length} játékosod van, így a rendszer automatikusan {byesNeeded} db &quot;Erőnyerő&quot; (Bye) pozíciót fog kiosztani az első körben.</span>
                                             </div>
                                         </div>
                                     )}

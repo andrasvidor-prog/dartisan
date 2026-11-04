@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { TrophyIcon, ArrowLeftIcon, BoltIcon, CheckCircleIcon, XMarkIcon, PlayIcon, TableCellsIcon } from '@heroicons/react/24/outline';
 import type { TournamentConfig, TournamentPlayer } from './TournamentScreen';
+import type { MatchConfig } from './SetupScreen';
 
 interface Match {
     id: string;
@@ -20,9 +21,9 @@ interface Match {
 
 interface TournamentBracketProps {
     config: TournamentConfig;
-    liveMatchResult?: any;
+    liveMatchResult?: { winnerId: string; score1: number; score2: number; tournamentMatchId?: string; isGroupMatch?: boolean } | null;
     onBack: () => void;
-    onPlayMatch?: (matchConfig: any) => void;
+    onPlayMatch?: (matchConfig: MatchConfig) => void;
 }
 
 export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch }: TournamentBracketProps) {
@@ -72,41 +73,6 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
     const [qScore2, setQScore2] = useState(0);
 
     const triggerHaptic = () => { if (typeof window !== 'undefined' && navigator.vibrate) navigator.vibrate(20); };
-
-    // 1. Ágrajz generálása (csak legelső alkalommal, ha még nincs mentés)
-    useEffect(() => {
-        if (!isGenerated) {
-            if (config.format === 'groups_to_knockout') {
-                generateGroupStage();
-            } else {
-                generateKnockoutStage(config.players);
-            }
-            setIsGenerated(true);
-        }
-    }, [isGenerated, config]);
-
-    // 2. ÉLŐ MECCS EREDMÉNYÉNEK FOGADÁSA ÉS BEÍRÁSA (Biztonságosan, useRef-fel)
-    const appliedLiveMatchRef = useRef<string | null>(null);
-
-    useEffect(() => {
-        if (liveMatchResult && liveMatchResult.tournamentMatchId && appliedLiveMatchRef.current !== liveMatchResult.tournamentMatchId) {
-            appliedLiveMatchRef.current = liveMatchResult.tournamentMatchId; // Megjelöljük, hogy ezt már beírtuk!
-            
-            if (liveMatchResult.isGroupMatch) {
-                handleGroupMatchComplete(liveMatchResult.tournamentMatchId, liveMatchResult.score1, liveMatchResult.score2, liveMatchResult.winnerId);
-            } else {
-                handleKnockoutMatchComplete(liveMatchResult.tournamentMatchId, liveMatchResult.score1, liveMatchResult.score2, liveMatchResult.winnerId);
-            }
-        }
-    }, [liveMatchResult]);
-
-    // 3. Automatikus Mentés minden változásnál
-    useEffect(() => {
-        if (matches.length > 0 || groupMatches.length > 0) {
-            localStorage.setItem(`dartisan_tourney_${config.id}`, JSON.stringify({ matches, groupMatches, phase, numRounds }));
-        }
-    }, [matches, groupMatches, phase, numRounds, config.id]);
-
 
     // --- LOGIKAI FÜGGVÉNYEK ---
     const generateGroupStage = () => {
@@ -182,8 +148,8 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
         setNumRounds(rounds);
 
         const numSlots = Math.pow(2, rounds);
-        const paddedPlayers = [...participants];
-        while (paddedPlayers.length < numSlots) { paddedPlayers.push(null as any); }
+        const paddedPlayers: (TournamentPlayer | null)[] = [...participants];
+        while (paddedPlayers.length < numSlots) { paddedPlayers.push(null); }
 
         const initialMatches: Match[] = [];
         for (let r = 0; r < rounds; r++) {
@@ -223,9 +189,11 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
 
     const handleSaveQuickEntry = () => {
         if (!quickEntryMatch) return;
+        const target = config.setsToWin > 1 ? config.setsToWin : config.legsToWin;
+        if ((qScore1 === target) === (qScore2 === target)) return;
         triggerHaptic();
-        const p1Wins = qScore1 >= (config.setsToWin > 1 ? config.setsToWin : config.legsToWin);
-        const p2Wins = qScore2 >= (config.setsToWin > 1 ? config.setsToWin : config.legsToWin);
+        const p1Wins = qScore1 === target;
+        const p2Wins = qScore2 === target;
         const winnerId = p1Wins && quickEntryMatch.player1 ? quickEntryMatch.player1.id : (p2Wins && quickEntryMatch.player2 ? quickEntryMatch.player2.id : null);
         
         if (quickEntryMatch.groupId) handleGroupMatchComplete(quickEntryMatch.id, qScore1, qScore2, winnerId);
@@ -252,10 +220,16 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
         onPlayMatch({
             gameMode: 'x01',
             startingScore: 501, checkout: 'double',
+            checkIn: 'single', muteCaller: false,
             legsToWin: config.legsToWin, setsToWin: config.setsToWin,
+            tournamentId: config.id,
             tournamentMatchId: match.id,
+            tournamentPlayerIds: [match.player1.id, match.player2.id],
             isGroupMatch: !!match.groupId,
-            players: [ { id: match.player1.id, name: match.player1.name, isBot: false, color: 'emerald' }, { id: match.player2.id, name: match.player2.name, isBot: false, color: 'rose' } ]
+            players: [
+                { name: match.player1.name, isBot: false, difficulty: 5, color: 'emerald' },
+                { name: match.player2.name, isBot: false, difficulty: 5, color: 'rose' },
+            ],
         });
     };
 
@@ -293,6 +267,43 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
             </div>
         );
     };
+
+    // 1. Ágrajz generálása (csak legelső alkalommal, ha még nincs mentés)
+    useEffect(() => {
+        if (isGenerated) return;
+        const timer = window.setTimeout(() => {
+            if (config.format === 'groups_to_knockout') {
+                generateGroupStage();
+            } else {
+                generateKnockoutStage(config.players);
+            }
+            setIsGenerated(true);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [isGenerated, config]);
+
+    // 2. ÉLŐ MECCS EREDMÉNYÉNEK FOGADÁSA ÉS BEÍRÁSA (Biztonságosan, useRef-fel)
+    const appliedLiveMatchRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (liveMatchResult && liveMatchResult.tournamentMatchId && appliedLiveMatchRef.current !== liveMatchResult.tournamentMatchId) {
+            appliedLiveMatchRef.current = liveMatchResult.tournamentMatchId; // Megjelöljük, hogy ezt már beírtuk!
+
+            if (liveMatchResult.isGroupMatch) {
+                handleGroupMatchComplete(liveMatchResult.tournamentMatchId, liveMatchResult.score1, liveMatchResult.score2, liveMatchResult.winnerId);
+            } else {
+                handleKnockoutMatchComplete(liveMatchResult.tournamentMatchId, liveMatchResult.score1, liveMatchResult.score2, liveMatchResult.winnerId);
+            }
+        }
+    }, [liveMatchResult]);
+
+    // 3. Automatikus Mentés minden változásnál
+    useEffect(() => {
+        if (matches.length > 0 || groupMatches.length > 0) {
+            localStorage.setItem(`dartisan_tourney_${config.id}`, JSON.stringify({ matches, groupMatches, phase, numRounds }));
+        }
+    }, [matches, groupMatches, phase, numRounds, config.id]);
+
 
     return (
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 flex flex-col h-[100dvh]">
@@ -395,7 +406,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
 
                         <button 
                             onClick={handleSaveQuickEntry} 
-                            disabled={qScore1 !== (config.setsToWin > 1 ? config.setsToWin : config.legsToWin) && qScore2 !== (config.setsToWin > 1 ? config.setsToWin : config.legsToWin)}
+                            disabled={(qScore1 === (config.setsToWin > 1 ? config.setsToWin : config.legsToWin)) === (qScore2 === (config.setsToWin > 1 ? config.setsToWin : config.legsToWin))}
                             className="w-full h-16 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none bg-cyan-500 text-slate-900 rounded-2xl font-black uppercase tracking-widest text-lg shadow-[0_10px_30px_rgba(6,182,212,0.3)] hover:opacity-90 active:scale-95 transition-all"
                         >
                             Mentés & Továbbjutás

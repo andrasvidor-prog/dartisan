@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, OAuthProvider } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 
 // IDE MÁSOLD BE A SAJÁT FIREBASE KULCSAIDAT!
 const firebaseConfig = {
@@ -18,6 +19,7 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 // Szolgáltatások exportálása
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const functions = getFunctions(app, 'europe-west1');
 
 // Bejelentkezési Providerek (Google és Apple)
 export const googleProvider = new GoogleAuthProvider();

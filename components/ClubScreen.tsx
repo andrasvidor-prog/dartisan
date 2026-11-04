@@ -8,17 +8,18 @@ import {
 } from '@heroicons/react/24/outline';
 import {
     collection, query, orderBy, limit, onSnapshot, doc, getDoc, setDoc,
-    updateDoc, arrayUnion, arrayRemove, writeBatch
+    updateDoc, arrayUnion, arrayRemove, writeBatch, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface ClubScreenProps {
     onBack: () => void;
-    currentUser: any;
-    lang?: 'hu' | 'en';
+    currentUser: { uid: string } | null;
+    lang: 'hu' | 'en';
 }
 
 type ClubMember = { uid: string; name: string; xp: number; photoURL?: string };
+type Club = { id: string; name: string; ownerId: string; members: string[]; totalXp: number; maxMembers: number };
 
 const txt = {
     en: {
@@ -79,23 +80,14 @@ const txt = {
     },
 };
 
-export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenProps) {
-    const [lang, setLang] = useState<'hu' | 'en'>(propLang || 'hu');
-
-    useEffect(() => {
-        if (typeof window !== 'undefined' && !propLang) {
-            const saved = localStorage.getItem('dartisan_lang') as 'hu' | 'en';
-            if (saved) setLang(saved);
-        }
-    }, [propLang]);
-
+export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
     const t = txt[lang];
 
     // ─── State ───────────────────────────────────────────────────────────────
-    const [myClub, setMyClub] = useState<any>(null);
-    const [allClubs, setAllClubs] = useState<any[]>([]);
+    const [myClub, setMyClub] = useState<Club | null>(null);
+    const [allClubs, setAllClubs] = useState<Club[]>([]);
     const [clubMembers, setClubMembers] = useState<ClubMember[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(!!currentUser);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Profilkép betöltési hibák nyilvántartása (uid set)
@@ -112,14 +104,14 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
 
     // ─── Load user's club (realtime) ─────────────────────────────────────────
     useEffect(() => {
-        if (!currentUser) { setIsLoading(false); return; }
+        if (!currentUser) return;
 
         const unsub = onSnapshot(doc(db, 'users', currentUser.uid), async (snap) => {
             if (snap.exists() && snap.data().clubId) {
                 const clubId: string = snap.data().clubId;
                 const clubSnap = await getDoc(doc(db, 'clubs', clubId));
                 if (clubSnap.exists()) {
-                    setMyClub({ id: clubSnap.id, ...clubSnap.data() });
+                    setMyClub({ id: clubSnap.id, ...clubSnap.data() } as Club);
                 } else {
                     // Klub törölték — takarítás
                     await updateDoc(doc(db, 'users', currentUser.uid), { clubId: null });
@@ -139,14 +131,14 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
     useEffect(() => {
         const q = query(collection(db, 'clubs'), orderBy('totalXp', 'desc'), limit(50));
         const unsub = onSnapshot(q, (snap) => {
-            setAllClubs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setAllClubs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Club)));
         });
         return () => unsub();
     }, []);
 
     // ─── Load club members whenever myClub changes ────────────────────────────
     useEffect(() => {
-        if (!myClub?.members?.length) { setClubMembers([]); return; }
+        if (!myClub?.members?.length) return;
 
         const fetchMembers = async () => {
             const docs = await Promise.all(
@@ -196,7 +188,7 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
                 members: [currentUser.uid],
                 totalXp: 0,
                 maxMembers: 25,
-                createdAt: new Date().toISOString(),
+                createdAt: serverTimestamp(),
             });
             batch.update(doc(db, 'users', currentUser.uid), { clubId: clubRef.id });
             batch.set(doc(db, 'publicProfiles', currentUser.uid), { clubId: clubRef.id }, { merge: true });
@@ -232,7 +224,15 @@ export function ClubScreen({ onBack, currentUser, lang: propLang }: ClubScreenPr
         setIsLeaving(true);
         try {
             const batch = writeBatch(db);
-            batch.update(doc(db, 'clubs', myClub.id), { members: arrayRemove(currentUser.uid) });
+            const remainingMembers = (myClub.members as string[]).filter(uid => uid !== currentUser.uid);
+            if (myClub.ownerId === currentUser.uid) {
+                if (remainingMembers.length === 0) batch.delete(doc(db, 'clubs', myClub.id));
+                else batch.update(doc(db, 'clubs', myClub.id), {
+                    ownerId: remainingMembers[0], members: remainingMembers,
+                });
+            } else {
+                batch.update(doc(db, 'clubs', myClub.id), { members: arrayRemove(currentUser.uid) });
+            }
             batch.update(doc(db, 'users', currentUser.uid), { clubId: null });
             batch.set(doc(db, 'publicProfiles', currentUser.uid), { clubId: null }, { merge: true });
             await batch.commit();

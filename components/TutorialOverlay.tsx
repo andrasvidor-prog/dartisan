@@ -160,7 +160,7 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
             {
                 emoji: '🌍',
                 title: 'Világbajnokság Ágrajz',
-                body: 'Karriermódban egy PDC-stílusú ágrajzon harcolsz magad fel. Minden körben egy erősebb ellenféllel találkozol. A győzőt hirdeti ki az ágrajz és továbblép.',
+                body: 'A karrier 15 egymás utáni meccsből áll. Minden győzelem feloldja a következő, erősebb ellenfelet. Vereség után ugyanazzal az ellenféllel próbálkozhatsz újra.',
                 tip: 'Bármelyik kört újrajátszhatod, ha elveszítesz!',
             },
             {
