@@ -174,14 +174,16 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                 </div>
             </div>
 
+            <div className="flex-1 min-h-0 w-full max-w-6xl mx-auto flex flex-col lg:flex-row">
+            <div className="flex-1 min-h-0 flex flex-col lg:border-r lg:border-slate-800">
             {/* Score header */}
-            <div className={`grid gap-1 px-4 pt-3 pb-2 shrink-0`}
+            <div className="grid gap-2 px-4 pt-3 pb-2 shrink-0"
                 style={{ gridTemplateColumns: `repeat(${players.length}, 1fr)` }}>
                 {players.map(p => {
                     const cc = COLOR_MAP[p.color] || COLOR_MAP.emerald;
                     const isActive = p.id === activePlayer;
                     return (
-                        <div key={p.id} className={`flex flex-col items-center p-2 rounded-2xl border-2 transition-all ${isActive ? cc : 'border-slate-800 opacity-60'}`}>
+                        <div key={p.id} className={`flex flex-col items-center p-2 rounded-2xl border-2 transition-all ${isActive ? cc : 'border-slate-800 bg-slate-900/40 text-slate-300'}`}>
                             <span className="text-[9px] font-black uppercase tracking-widest truncate w-full text-center">
                                 {p.name}
                             </span>
@@ -242,9 +244,10 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                     </tbody>
                 </table>
             </div>
+            </div>
 
             {/* Input panel – responsive for phone & tablet */}
-            <div className="shrink-0 px-3 sm:px-6 py-3 sm:py-4 bg-[#12141a] border-t border-slate-800 w-full max-w-2xl mx-auto">
+            <div className="shrink-0 px-3 sm:px-6 py-3 sm:py-4 bg-[#12141a] border-t lg:border-t-0 border-slate-800 w-full max-w-2xl lg:max-w-none lg:w-[42%] lg:overflow-y-auto mx-auto">
                 {/* Pending darts display */}
                 <div className="flex gap-2 mb-3">
                     {[0, 1, 2].map(i => (
@@ -291,6 +294,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                         Miss (kihagyás)
                     </button>
                 </div>
+            </div>
             </div>
 
             {/* Winner overlay */}

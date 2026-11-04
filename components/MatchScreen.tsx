@@ -817,7 +817,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   const getCheckoutTable = (s: number, dartsLeft: number): { text: string, isSmart: boolean } | null => {
     if (config.gameMode === 'practice' && config.practiceType !== '121') return null;
-    if (config.checkout === 'single') return { text: s <= 20 ? `${s}` : (s <= 40 && s % 2 === 0 ? `D${s/2}` : (s <= 60 && s % 3 === 0 ? `T${s/3}` : "In play...")), isSmart: false };
+    if (config.checkout === 'single') {
+        if (s < 1) return null;
+        if (s >= 1 && s <= 20) return { text: `${s}`, isSmart: false };
+        if (s <= 40 && s % 2 === 0) return { text: `D${s / 2}`, isSmart: false };
+        if (s <= 60 && s % 3 === 0) return { text: `T${s / 3}`, isSmart: false };
+        return null;
+    }
     if (s > dartsLeft * 60 || s < 2) return null;
 
     if (favoriteDouble && dartsLeft >= 2) {
@@ -845,7 +851,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (s - 32 <= 20 && s - 32 > 0) return { text: `${s - 32} D16`, isSmart: false }; 
         if (s - 36 <= 20 && s - 36 > 0) return { text: `${s - 36} D18`, isSmart: false }; 
     }
-    return dartsLeft >= 3 ? { text: "Combo...", isSmart: false } : null;
+    return null;
   };
 
   const nextPlayerIdx = useCallback(() => { 
@@ -1301,12 +1307,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   };
 
   const handleCSVExport = () => {
-      let csv = "Jatekos,Atlag,Elso 9 Atlag,Kiszallo %,Legjobb Kiszallo,180,140,100+\n";
+      const csvCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+      let csv = "\uFEFFJatekos,Atlag,Elso 9 Atlag,Kiszallo %,Legjobb Kiszallo,180,140,100+\n";
       players.forEach(p => {
           const avg = ((p.totalPoints / (p.totalDarts || 1)) * 3).toFixed(2);
           const f9avg = ((p.first9Points / (p.first9Darts || 1)) * 3).toFixed(2);
           const checkout = p.checkoutAttempts > 0 ? Math.round((p.checkoutSuccess / p.checkoutAttempts) * 100) : 0;
-          csv += `${p.name},${avg},${f9avg},${checkout}%,${p.highestCheckout},${p.count180},${p.count140},${p.count100}\n`;
+          csv += [p.name, avg, f9avg, `${checkout}%`, p.highestCheckout, p.count180, p.count140, p.count100].map(csvCell).join(',') + '\n';
       });
       
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1317,6 +1324,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleShareMatch = async () => {
@@ -1340,6 +1348,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const displayPlayers = isAsync ? players : (players.length > 2 ? players : [...players.slice(activePlayer), ...players.slice(0, activePlayer)]);
   const safePlayer = players[activePlayer] || players[0];
   const matchWinnerPlayer = players.reduce((winner, player) => player.setsWon > winner.setsWon ? player : winner, players[0]);
+  const winnerColorTheme = COLOR_STYLES[matchWinnerPlayer?.color] || COLOR_STYLES.emerald;
   const legWinnerPlayer = isAsync
       ? (fbSyncData?.state?.resolvedLeg?.winner === role ? players[0] : players[1])
       : safePlayer;
@@ -1350,7 +1359,6 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   );
   const activeColorTheme = COLOR_STYLES[safePlayer?.color] || COLOR_STYLES['emerald']; 
   const colTxt = activeColorTheme.split(' ')[0] || 'text-emerald-400'; 
-  const colBor = activeColorTheme.split(' ')[1] || 'border-emerald-500'; 
   const colBg = activeColorTheme.split(' ')[3] || 'bg-emerald-500';
 
   const isBotTurn = safePlayer?.isBot && !isAsync;
@@ -1358,27 +1366,35 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const recObj = getCheckoutTable(safePlayer.score, 3 - currentDarts.length);
 
   return (
-    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-10">
-      {tutKey && (
-          <button onClick={() => setShowTutorial(true)} className="absolute top-4 left-4 z-[999] p-2 text-slate-400 hover:text-amber-400 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black">?</button>
-      )}
-      <button onClick={() => window.open('/tv', '_blank')} className="absolute top-4 right-16 z-[999] p-2 text-slate-400 hover:text-cyan-500 bg-slate-900 rounded-full border border-slate-800 text-[10px] font-black uppercase leading-none">TV</button>
-      <button onClick={onBackToSetup} className="absolute top-4 right-4 z-[999] p-2 text-slate-400 hover:text-rose-500 bg-slate-900 rounded-full border border-slate-800"><XMarkIcon className="h-6 w-6" /></button>
+    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-3">
+      <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto mb-2 flex items-center justify-between shrink-0">
+        <div className="text-[10px] sm:text-xs font-black tracking-[0.2em] text-emerald-400 uppercase">Dartisan <span className="text-slate-500">· {config.gameMode === 'challenge' ? (lang === 'hu' ? 'Online meccs' : 'Online match') : (lang === 'hu' ? 'Mérkőzés' : 'Match')}</span></div>
+        <div className="flex items-center gap-2">
+          {tutKey && <button onClick={() => setShowTutorial(true)} aria-label={lang === 'hu' ? 'Játékszabályok' : 'Game rules'} className="h-9 w-9 flex items-center justify-center text-slate-300 hover:text-amber-400 bg-slate-900 rounded-full border border-slate-700 font-black">?</button>}
+          <button onClick={() => window.open('/tv', '_blank')} aria-label={lang === 'hu' ? 'TV nézet megnyitása' : 'Open TV view'} className="h-9 min-w-9 px-2 text-slate-300 hover:text-cyan-400 bg-slate-900 rounded-full border border-slate-700 text-[10px] font-black uppercase">TV</button>
+          <button onClick={onBackToSetup} aria-label={lang === 'hu' ? 'Vissza a kezdőképernyőre' : 'Back to home'} className="h-9 w-9 flex items-center justify-center text-slate-300 hover:text-rose-400 bg-slate-900 rounded-full border border-slate-700"><XMarkIcon className="h-5 w-5" /></button>
+        </div>
+      </div>
 
-      <div className="w-full max-w-[1100px] px-3 sm:px-6 pb-2 grid gap-2 sm:gap-3 mx-auto shrink-0"
-           style={{ gridTemplateColumns: `repeat(${Math.min(displayPlayers.length, 4)}, 1fr)`, height: displayPlayers.length > 2 ? '8rem' : '6rem' }}>
+      <div className={`w-full max-w-[1100px] px-3 sm:px-6 pb-2 grid gap-2 sm:gap-3 mx-auto shrink-0 ${displayPlayers.length > 2 ? 'grid-cols-2 md:grid-cols-4' : displayPlayers.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {displayPlayers.map((pl) => {
               const pColStyle = COLOR_STYLES[pl.color] || COLOR_STYLES.emerald;
               const pColTxt = pColStyle.split(' ')[0];
               const pColBor = pColStyle.split(' ')[1];
               return (
-                  <div key={pl.id} className={`rounded-3xl flex flex-col items-center justify-center border-2 transition-all duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/40 border-slate-800/50 opacity-50 scale-[0.97]'}`}>
-                      <span className={`text-[9px] sm:text-[11px] font-black uppercase tracking-widest truncate w-full text-center px-1 ${activePlayer === pl.id ? pColTxt : 'text-slate-500'}`}>{pl.name}</span>
-                      <span className="text-5xl sm:text-6xl font-black text-white font-mono leading-none">{pl.score}</span>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase">S:{pl.setsWon} L:{pl.legsWon}</span>
+                  <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[94px] sm:min-h-[108px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
+                      <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
+                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{pl.score}</span>
+                      <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</span>
                   </div>
               );
           })}
+      </div>
+
+      <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
+        <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Soron' : 'Turn'}</div><div className={`text-sm font-black truncate ${colTxt}`}>{safePlayer?.name}</div></div>
+        <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.lastVisit ?? '—'}</div></div>
+        <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? '3 nyilas átlag' : '3-dart avg'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.totalDarts ? ((safePlayer.totalPoints / safePlayer.totalDarts) * 3).toFixed(1) : '—'}</div></div>
       </div>
 
       <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full max-w-[1100px] mx-auto flex flex-col relative shrink-0 ${inputMode === 'board' ? 'pt-2 pb-2' : 'pt-3 pb-6 sm:pb-4 md:flex-1 md:justify-center'}`}>
@@ -1532,7 +1548,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             <h2 className="text-3xl font-black text-white mb-2">{isSetWinner ? (lang === 'hu' ? 'Szett vége!' : 'Set complete!') : txt.waitLegTitle}</h2>
             <p className="text-emerald-300 font-bold mb-6">{legWinnerPlayer?.name} {lang === 'hu' ? 'nyerte ezt a leget.' : 'won this leg.'}</p>
             <div className="grid grid-cols-2 gap-3 mb-7">
-              {players.slice(0, 2).map(player => (
+              {players.map(player => (
                 <div key={player.id} className="rounded-xl bg-slate-900 border border-slate-700 p-3">
                   <div className="text-xs text-slate-400 truncate">{player.name}</div>
                   <div className="font-black text-white">S:{player.setsWon} L:{player.legsWon}</div>
@@ -1556,9 +1572,22 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             <h2 className="text-4xl sm:text-5xl font-black text-white mb-2 uppercase italic tracking-tighter leading-none z-10 text-center">
                 {config.gameMode === 'career' && matchWinnerPlayer?.id === 0 ? txt.careerWon : txt.matchShot}
             </h2>
-            <p className={`${colTxt} text-lg sm:text-xl mb-10 font-black uppercase tracking-widest z-10 text-center`}>
+            <p className={`${winnerColorTheme.split(' ')[0]} text-lg sm:text-xl mb-6 font-black uppercase tracking-widest z-10 text-center`}>
                 {matchWinnerPlayer?.name} {txt.winsMatch}
             </p>
+
+            <div className={`w-full max-w-2xl grid grid-cols-2 ${config.tournamentId || config.gameMode === 'career' ? 'sm:grid-cols-2' : onRematch && !isAsync ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2 sm:gap-3 mb-6 shrink-0 z-10`}>
+                <button onClick={handleExit} className="min-h-12 rounded-xl bg-slate-800 text-white text-xs sm:text-sm font-black uppercase hover:bg-slate-700">{txt.back}</button>
+                {config.tournamentId || config.gameMode === 'career' ? (
+                    <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className="min-h-12 rounded-xl bg-[#b655ff] text-white text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2">Következő <ForwardIcon className="h-4 w-4" /></button>
+                ) : (
+                    <>
+                        {onRematch && !isAsync && <button onClick={onRematch} className="min-h-12 rounded-xl bg-emerald-500 text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2"><ArrowPathIcon className="h-4 w-4" /> Újrajátszás</button>}
+                        <button onClick={handleShareMatch} className={`min-h-12 rounded-xl ${winnerColorTheme.split(' ')[3]} text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2`}><ShareIcon className="h-4 w-4" /> Megosztás</button>
+                        <button onClick={handleCSVExport} className="min-h-12 rounded-xl bg-slate-700 text-white text-xs sm:text-sm font-black uppercase">CSV export</button>
+                    </>
+                )}
+            </div>
             
             <div className="w-full max-w-2xl bg-[#12141a]/90 backdrop-blur-lg rounded-[2.5rem] border border-slate-800 p-4 sm:p-8 mb-10 shrink-0 flex flex-col gap-8 z-10 shadow-2xl">
               <div className="flex-1 flex flex-col gap-6">
@@ -1604,7 +1633,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               <div className="p-4 sm:p-6 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-start gap-3 sm:gap-4">
                   <ComputerDesktopIcon className="h-8 w-8 sm:h-10 sm:w-10 text-indigo-400 shrink-0 mt-1"/>
                   <div className="flex flex-col">
-                      <p className="text-[10px] sm:text-xs font-black text-indigo-300 uppercase tracking-[0.2em] mb-1 sm:mb-2">AI Játékos Értékelés</p>
+                      <p className="text-[10px] sm:text-xs font-black text-indigo-300 uppercase tracking-[0.2em] mb-1 sm:mb-2">{lang === 'hu' ? 'Meccsértékelés' : 'Match review'}</p>
                         <p className="text-xs sm:text-sm text-indigo-100 font-bold italic leading-relaxed">&ldquo;{generateAiFeedback(players[0])}&rdquo;</p>
                   </div>
               </div>
@@ -1616,26 +1645,6 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 w-full max-w-sm shrink-0 mt-auto z-10">
-                <button onClick={handleExit} className="flex-1 h-14 sm:h-16 rounded-2xl bg-slate-800 text-white text-sm sm:text-base font-black uppercase shadow-xl hover:bg-slate-700 transition-colors">{txt.back}</button>
-
-                {config.tournamentId || config.gameMode === 'career' ? (
-                    <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className={`flex-1 h-14 sm:h-16 rounded-2xl bg-[#b655ff] text-white text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2`}>
-                        Következő <ForwardIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-                    </button>
-                ) : (
-                    <>
-                        {onRematch && !isAsync && (
-                            <button onClick={onRematch} className="flex-1 h-14 sm:h-16 rounded-2xl bg-emerald-500 text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                                <ArrowPathIcon className="h-5 w-5 sm:h-6 sm:w-6" /> Újrajátszás
-                            </button>
-                        )}
-                        <button onClick={handleShareMatch} className={`flex-1 h-14 sm:h-16 rounded-2xl ${colBg} text-slate-950 text-sm sm:text-base font-black uppercase shadow-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2`}>
-                            <ShareIcon className="h-5 w-5 sm:h-6 sm:w-6" /> Megosztás
-                        </button>
-                    </>
-                )}
-            </div>
         </div>
       )}
 

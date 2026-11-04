@@ -88,6 +88,7 @@ interface SetupScreenProps {
 export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
   const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>('x01');
   const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
+  const [cricketGuestName, setCricketGuestName] = useState('Játékos 2');
   const [score, setScore] = useState(501);
   const [sets, setSets] = useState(1);
   const [legs, setLegs] = useState(3);
@@ -444,10 +445,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
   };
 
   return (
-    <div className={`w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center pb-24 px-4 relative ${savedMatch && !hostedCode && !showTutorial && !showAuth && !showQuests ? 'pt-24' : 'pt-8'}`}>
+    <div className="w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center px-4 sm:px-6 lg:px-10 pt-24 lg:pt-28 pb-12 lg:pb-20 relative">
       
       {savedMatch && !hostedCode && !showTutorial && !showAuth && !showQuests && (
-       <div className="w-full max-w-sm mx-auto mb-4 bg-emerald-500 border border-emerald-400 p-4 rounded-2xl shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex flex-wrap justify-between items-center gap-3">
+       <div className="w-full max-w-6xl mx-auto mb-5 bg-emerald-500 border border-emerald-400 p-4 rounded-2xl shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex flex-wrap justify-between items-center gap-3">
           <div className="flex flex-col">
               <span className="text-slate-900 font-black uppercase text-sm">{txt.resumeTitle}</span>
               <span className="text-emerald-900 font-bold text-xs">{txt.resumeDesc}</span>
@@ -614,9 +615,12 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
         </div>
       </div>
 
-      <header className="mb-6 text-center shrink-0 mt-28">
+      <div className="w-full max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)] xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6 lg:gap-10 items-start">
+      <section className="w-full flex flex-col items-center md:items-stretch md:sticky md:top-24">
+      <header className="mb-6 text-center md:text-left shrink-0">
         <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-1 block">DARTISAN</span>
-        <h1 className="text-4xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
+        <h1 className="text-4xl lg:text-6xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
+        <p className="hidden md:block text-sm text-slate-400 font-medium mt-3 max-w-md">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
       </header>
 
       {/* --- QUICK START GOMB --- */}
@@ -635,20 +639,20 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 checkout: 'double', 
                 muteCaller: muteCaller 
             })} 
-            className="w-full max-w-sm h-14 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform"
+            className="w-full h-14 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform"
         >
             {txt.quickMatch}
         </button>
       )}
 
-      <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
+      <div className="w-full flex flex-col gap-2 mb-6">
           <div className="flex bg-[#12141a] rounded-xl p-1 border border-slate-800 shadow-lg">
             <button onClick={() => setTab('x01')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'x01' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.local}</button>
             <button onClick={() => setTab('challenge')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'challenge' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.challenge}</button>
             <button onClick={() => setTab('practice')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'practice' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.practice}</button>
           </div>
           
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
             <button onClick={() => setTab('career')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'career' ? 'bg-[#b655ff] text-white border-[#b655ff] shadow-[0_0_15px_rgba(182,85,255,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.career}</button>
             <button onClick={() => setTab('cricket')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'cricket' ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>Cricket</button>
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
@@ -660,7 +664,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           </div>
       </div>
 
-      <button onClick={onStartTournament} className="w-full max-w-sm mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0">
+      <button onClick={onStartTournament} className="w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0">
           <div className="flex items-center gap-4">
               <TrophyIcon className="h-7 w-7 group-hover:scale-110 transition-transform" />
               <div className="flex flex-col items-start">
@@ -670,14 +674,15 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           </div>
           <ChevronRightIcon className="h-5 w-5 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
       </button>
+      </section>
 
-      <div className="w-full max-w-sm bg-[#12141a] rounded-[2rem] p-6 border border-slate-800 shadow-2xl flex flex-col shrink-0 mb-8">
+      <div className="w-full min-w-0 bg-[#12141a] rounded-[2rem] p-5 sm:p-6 lg:p-8 border border-slate-800 shadow-2xl flex flex-col mb-8">
         
         {(tab === 'x01' || tab === 'challenge') && (
           <div className="flex flex-col gap-6">
             <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 block ml-1">{tab === 'challenge' ? 'A Te Neved' : txt.players}</label>
-                <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                     {players.slice(0, tab === 'challenge' ? 1 : 4).map((p, idx) => (
                     <div key={idx} className="flex flex-col bg-[#0b0d11] p-3 rounded-xl border border-slate-800">
                         <div className="flex items-center gap-3">
@@ -916,8 +921,21 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                         <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Győz, aki elsőként zárja az összes szektort ÉS vezet pontban</li>
                     </ul>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {lang === 'hu' ? 'Első játékos' : 'First player'}
+                        <input value={players[0].name} onChange={e => updatePlayer(0, { name: e.target.value })} className="mt-2 w-full h-12 rounded-xl bg-slate-950 border border-slate-700 px-4 text-sm text-white outline-none focus:border-emerald-500" />
+                    </label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {lang === 'hu' ? 'Második játékos' : 'Second player'}
+                        <input value={players[1]?.name ?? cricketGuestName} onChange={e => players[1] ? updatePlayer(1, { name: e.target.value }) : setCricketGuestName(e.target.value)} className="mt-2 w-full h-12 rounded-xl bg-slate-950 border border-slate-700 px-4 text-sm text-white outline-none focus:border-emerald-500" />
+                    </label>
+                </div>
                 <button
-                    onClick={() => onStart({ gameMode: 'cricket', players: players.slice(0, 2).map(p => ({ ...p, isBot: false })), startingScore: 0, setsToWin: 1, legsToWin: 1, checkIn: 'single', checkout: 'single', muteCaller })}
+                    onClick={() => onStart({ gameMode: 'cricket', players: [
+                        { ...players[0], name: players[0].name.trim() || 'Player 1', isBot: false },
+                        players[1] ? { ...players[1], name: players[1].name.trim() || 'Játékos 2', isBot: false } : { name: cricketGuestName.trim() || 'Játékos 2', color: 'rose', isBot: false, difficulty: 5 }
+                    ], startingScore: 0, setsToWin: 1, legsToWin: 1, checkIn: 'single', checkout: 'single', muteCaller })}
                     className="w-full h-16 rounded-2xl bg-emerald-500 text-slate-950 text-xl font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] mt-2"
                 >
                     Cricket Indítása
@@ -959,6 +977,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 )}
             </div>
         )}
+      </div>
       </div>
     </div>
   );

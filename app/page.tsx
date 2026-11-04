@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SetupScreen } from '../components/SetupScreen';
 import { MatchScreen } from '../components/MatchScreen';
 import ProfileScreen from '../components/ProfileScreen';
@@ -19,6 +19,7 @@ import { syncPublicProfile } from '../lib/publicProfile';
 export type Language = 'hu' | 'en';
 
 export default function Home() {
+  const scrollContainerRef = useRef<HTMLElement>(null);
   const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'career' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
   const [lang, setLang] = useState<Language>('hu');
   const [matchConfig, setMatchConfig] = useState<any>(null);
@@ -100,10 +101,14 @@ export default function Home() {
 
   }, []);
 
+  useEffect(() => {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, [currentScreen, showTournament, matchInstance]);
+
   if (!isMounted) return null;
 
   return (
-    <main className="relative h-[100dvh] w-full bg-[#0b0d11] text-slate-200 overflow-y-auto overflow-x-hidden scroll-smooth custom-scrollbar">
+    <main ref={scrollContainerRef} className="relative h-[100dvh] w-full bg-[#0b0d11] text-slate-200 overflow-y-auto overflow-x-hidden scroll-smooth custom-scrollbar">
       <style dangerouslySetInnerHTML={{__html: `
         ::-webkit-scrollbar { display: none !important; }
         * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
