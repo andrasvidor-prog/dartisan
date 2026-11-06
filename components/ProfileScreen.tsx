@@ -12,6 +12,7 @@ import {
     doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
+import { matchHistoryCsv, matchTrend, type MatchAnalyticsRow } from '../lib/matchAnalytics';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DARTBOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
@@ -98,6 +99,28 @@ const matchDate = (value: MatchHistory['date']) => {
     return Number.isNaN(date.getTime()) ? new Date(0) : date;
 };
 
+const trendPoints = (values: (number | null)[], max: number) => values
+    .map((value, index) => value === null ? null : `${12 + index * 576 / Math.max(1, values.length - 1)},${144 - Math.max(0, value) * 128 / max}`)
+    .filter((point): point is string => point !== null).join(' ');
+
+const MatchTrendChart = ({ rows }: { rows: MatchAnalyticsRow[] }) => {
+    const trend = matchTrend(rows);
+    if (trend.count < 2) return null;
+    const max = Math.max(60, ...trend.averages, ...trend.first9.filter((value): value is number => value !== null));
+    return <section className="rounded-2xl border border-indigo-500/25 bg-[#12141a] p-4 sm:p-6" aria-label="Átlagok alakulása">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div><h3 className="text-sm font-black uppercase text-white">Átlagok alakulása</h3><p className="text-xs text-slate-400 mt-1">Az utolsó {trend.count} mentett meccs, időrendben.</p></div>
+            <div className="flex gap-4 text-xs font-black"><span className="text-indigo-300">● 3 nyilas átlag</span><span className="text-cyan-300">● Első 9 nyíl</span></div>
+        </div>
+        <svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Háromnyilas és első kilenc nyilas átlag trendje" className="w-full h-36 sm:h-44 rounded-xl bg-[#0b0d11]">
+            {[48, 96, 144].map(y => <line key={y} x1="12" x2="588" y1={y} y2={y} stroke="#283241" strokeWidth="1" />)}
+            <polyline points={trendPoints(trend.averages, max)} fill="none" stroke="#a5b4fc" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points={trendPoints(trend.first9, max)} fill="none" stroke="#67e8f9" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <div className="grid grid-cols-2 gap-3 mt-4 text-xs"><div className="rounded-xl bg-[#0b0d11] p-3"><span className="text-slate-400 block">Átlag változása</span><strong className={trend.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{trend.change >= 0 ? '+' : ''}{trend.change.toFixed(1)}</strong></div><div className="rounded-xl bg-[#0b0d11] p-3"><span className="text-slate-400 block">Ingadozás (szórás)</span><strong className="text-white">{trend.deviation.toFixed(1)}</strong></div></div>
+    </section>;
+};
+
 const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' | 'double' | 'treble' }) => {
     const SIZE = 320; const C = SIZE / 2; const SA = 360 / 20;
 
@@ -167,6 +190,14 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
     const [activeTab, setActiveTab]     = useState<'profile' | 'history' | 'analytics' | 'social'>('profile');
     const [selectedMatch, setSelectedMatch] = useState<MatchHistory | null>(null);
+    const matchRows = useMemo<MatchAnalyticsRow[]>(() => matchHistory.map(m => ({
+        date: matchDate(m.date).toISOString(), mode: m.mode || '', opponent: m.opponent || '',
+        won: !!m.won, score: m.score || '', average: typeof m.stats?.average === 'number' ? m.stats.average : null,
+        first9Average: typeof m.stats?.first9Average === 'number' ? m.stats.first9Average : null,
+        checkoutPct: typeof m.stats?.checkoutPct === 'number' ? Math.round(m.stats.checkoutPct * 1000) / 10 : null,
+        bestLegDarts: typeof m.stats?.bestLegDarts === 'number' ? m.stats.bestLegDarts : null,
+        count100: m.stats?.count100 || 0, count140: m.stats?.count140 || 0, count180: m.stats?.count180 || 0,
+    })), [matchHistory]);
     const [isEditingAvatar, setIsEditingAvatar] = useState(false);
 
     const [searchQuery,   setSearchQuery]   = useState('');
@@ -227,6 +258,15 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         }
         setSettingsSaved(true);
         setTimeout(() => setSettingsSaved(false), 2000);
+    };
+
+    const exportMatchHistory = () => {
+        const url = URL.createObjectURL(new Blob([matchHistoryCsv(matchRows)], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'dartisan-meccsnaplo.csv';
+        link.click();
+        URL.revokeObjectURL(url);
     };
 
     // ── Heatmap (real-time, load when tab is active) ──────────────────────────
@@ -549,9 +589,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                     {/* ── NAPLÓ TAB ───────────────────────────────────────────────────────── */}
                     {activeTab === 'history' && (
                         <div className="flex flex-col gap-4">
-                            <h2 className="text-lg font-black text-white uppercase italic flex items-center gap-2">
-                                <ChartBarIcon className="h-5 w-5 text-indigo-400" /> Meccsnapló
-                            </h2>
+                            <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-black text-white uppercase italic flex items-center gap-2"><ChartBarIcon className="h-5 w-5 text-indigo-400" /> Meccsnapló</h2>{matchRows.length > 0 && <button type="button" onClick={exportMatchHistory} className="rounded-xl border border-indigo-500/40 px-4 py-2 text-xs font-black text-indigo-300 hover:bg-indigo-500/10">CSV export</button>}</div>
+                            <MatchTrendChart rows={matchRows} />
                             {matchHistory.length === 0 ? (
                                 <div className="text-center py-16 text-slate-500 font-bold uppercase border border-dashed border-slate-800 rounded-2xl text-xs tracking-widest">
                                     Még nincs rögzített meccs.
