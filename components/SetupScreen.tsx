@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously } from 'firebase/auth';
+import { signInWithPopup, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously } from 'firebase/auth';
 import { 
     XMarkIcon, PlusIcon, ComputerDesktopIcon, UserIcon, UserCircleIcon, 
     SpeakerWaveIcon, SpeakerXMarkIcon, PaperAirplaneIcon, 
@@ -14,13 +14,13 @@ import type { User } from 'firebase/auth';
 import type { Dart, PlayerData } from './MatchScreen';
 
 import { db, auth, googleProvider, appleProvider } from '../firebase'; 
-import { doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, orderBy, limit, getDocs, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, collection, query, orderBy, limit, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { questsFor, readQuestProgress, type QuestProgress } from '../lib/quests';
 import { TRAINING_MODES } from '../lib/training';
 import { bullOffWinner, isMatchPreset, readMatchPresets, writeMatchPresets, type BullOffHit, type MatchPreset } from '../lib/matchPresets';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
-type DisplayUser = User & { selectedAvatar?: string };
+type DisplayUser = Pick<User, 'uid' | 'email' | 'displayName' | 'photoURL'> & { selectedAvatar?: string };
 type LeaderboardPlayer = { id: string; name?: string; xp?: number; weeklyXp?: number; photoURL?: string; selectedAvatar?: string; displayName?: string; email?: string };
 export type SavedMatch = {
     config: MatchConfig;
@@ -102,10 +102,10 @@ const t = {
 };
 
 const COLORS: PlayerColor[] = ['emerald', 'rose', 'cyan', 'amber', 'purple'];
-const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
 
 interface SetupScreenProps {
   lang: Language;
+  initialTab?: 'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues';
   onStart: (config: MatchConfig) => void;
   onOpenProfile: () => void;
   onOpenCoach?: () => void;
@@ -117,8 +117,8 @@ interface SetupScreenProps {
   userStreak?: number; // <- ÚJ: Külső state a page.tsx-ből
 }
 
-export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenTrainingLab, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
-  const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>('x01');
+export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, onOpenCoach, onOpenTrainingLab, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
+  const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>(initialTab);
   const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
   const [cricketGuestName, setCricketGuestName] = useState('Játékos 2');
   const [cricketVariant, setCricketVariant] = useState<'standard' | 'cutthroat'>('standard');
@@ -190,52 +190,26 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         if (user && !user.isAnonymous) {
-            const docRef = doc(db, 'users', user.uid);
-            const docSnap = await getDoc(docRef);
-            const userData = docSnap.exists() ? docSnap.data() : null;
-            const savedSettings = userData?.settings;
-            if (savedSettings?.checkout === 'single' || savedSettings?.checkout === 'double') {
-                setCheckout(savedSettings.checkout);
-                localStorage.setItem('dartisan_checkout', savedSettings.checkout);
-            }
-            if (savedSettings?.inputMode === 'fast' || savedSettings?.inputMode === 'detailed' || savedSettings?.inputMode === 'board') {
-                localStorage.setItem('dartisan_pref_input', savedSettings.inputMode);
-            }
-            if (savedSettings?.strategy === 'safe' || savedSettings?.strategy === 'pro') {
-                localStorage.setItem('dartisan_strategy', savedSettings.strategy);
-            }
-            if (Array.isArray(savedSettings?.fastBtns) && savedSettings.fastBtns.length === 3 && savedSettings.fastBtns.every((n: number) => Number.isInteger(n) && n >= 0 && n <= 180)) {
-                localStorage.setItem('dartisan_quick_buttons', JSON.stringify(savedSettings.fastBtns));
-            }
-
             const displayName = user.displayName || user.email?.split('@')[0] || 'Player';
-            
-            const fullUser = { 
-                ...user, 
-                selectedAvatar: userData?.selectedAvatar,
-                displayName: userData?.name || displayName 
-            };
-            
-            setCurrentUser(fullUser);
-            setPlayers(prev => [{ ...prev[0], name: fullUser.displayName }, ...prev.slice(1)]);
-            
-            const d = new Date();
-            const currentWeek = Math.ceil((((d.getTime() - new Date(d.getFullYear(), 0, 1).getTime()) / 86400000) + new Date(d.getFullYear(), 0, 1).getDay() + 1) / 7);
-
-            if (!docSnap.exists()) {
-                const randomTag = Math.floor(1000 + Math.random() * 9000);
-                await setDoc(docRef, { 
-                    name: displayName, 
-                    email: user.email, 
-                    photoURL: user.photoURL, 
-                    tag: randomTag,
-                    xp: 0, weeklyXp: 0, lastWeek: currentWeek, matchesWon: 0, createdAt: new Date() 
-                });
-            } else { 
-                const data = docSnap.data(); 
-                if (!SERVER_MATCH_ENABLED && data.lastWeek !== currentWeek) {
-                    await updateDoc(docRef, { weeklyXp: 0, lastWeek: currentWeek });
+            setCurrentUser({ uid: user.uid, email: user.email, photoURL: user.photoURL, displayName });
+            setPlayers(prev => [{ ...prev[0], name: displayName }, ...prev.slice(1)]);
+            try {
+                const docSnap = await getDoc(doc(db, 'users', user.uid));
+                const userData = docSnap.exists() ? docSnap.data() : null;
+                const savedSettings = userData?.settings;
+                if (savedSettings?.checkout === 'single' || savedSettings?.checkout === 'double') {
+                    setCheckout(savedSettings.checkout);
+                    localStorage.setItem('dartisan_checkout', savedSettings.checkout);
                 }
+                if (savedSettings?.inputMode === 'fast' || savedSettings?.inputMode === 'detailed' || savedSettings?.inputMode === 'board') localStorage.setItem('dartisan_pref_input', savedSettings.inputMode);
+                if (savedSettings?.strategy === 'safe' || savedSettings?.strategy === 'pro') localStorage.setItem('dartisan_strategy', savedSettings.strategy);
+                if (Array.isArray(savedSettings?.fastBtns) && savedSettings.fastBtns.length === 3 && savedSettings.fastBtns.every((n: number) => Number.isInteger(n) && n >= 0 && n <= 180)) localStorage.setItem('dartisan_quick_buttons', JSON.stringify(savedSettings.fastBtns));
+                if (userData?.name || userData?.selectedAvatar) {
+                    setCurrentUser({ uid: user.uid, email: user.email, photoURL: user.photoURL, displayName: userData.name || displayName, selectedAvatar: userData.selectedAvatar });
+                    if (userData.name) setPlayers(prev => [{ ...prev[0], name: userData.name }, ...prev.slice(1)]);
+                }
+            } catch (error) {
+                console.error('Profile preferences could not be loaded:', error);
             }
         } else { 
             setCurrentUser(null); 
@@ -356,7 +330,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
           setShowAuth(false); 
       } catch (error) { 
           console.error("Login error:", error); 
-          alert("Sikertelen bejelentkezés. Próbáld újra!"); 
+          const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+          if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+              alert(code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta a Google bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Google sign-in window. Allow pop-ups or open the site in your browser.') : code === 'auth/unauthorized-domain' ? (lang === 'hu' ? 'Ez a webcím nincs engedélyezve a bejelentkezéshez. Használd a hivatalos Dartisan oldalt.' : 'This address is not authorized for sign-in. Use the official Dartisan site.') : (lang === 'hu' ? 'A Google bejelentkezés nem sikerült. Próbáld újra.' : 'Google sign-in failed. Please try again.'));
+          }
       } 
       setIsLoggingIn(false); 
   };
@@ -368,7 +345,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
           setShowAuth(false); 
       } catch (error) { 
           console.error("Apple Login error:", error); 
-          alert("Sikertelen Apple bejelentkezés."); 
+          const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+          if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+              alert(code === 'auth/operation-not-allowed' ? (lang === 'hu' ? 'Az Apple bejelentkezés jelenleg nincs bekapcsolva ehhez a projekthez.' : 'Apple sign-in is not enabled for this project.') : code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta az Apple bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Apple sign-in window. Allow pop-ups or open the site in your browser.') : (lang === 'hu' ? 'Az Apple bejelentkezés nem sikerült. Próbáld újra.' : 'Apple sign-in failed. Please try again.'));
+          }
       } 
       setIsLoggingIn(false); 
   };
@@ -505,7 +485,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
   };
 
   return (
-    <div className="w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center px-4 sm:px-6 lg:px-10 pt-24 lg:pt-28 pb-12 lg:pb-20 relative">
+    <div className="w-full min-h-[100dvh] bg-[#0b0d11] text-slate-200 flex flex-col items-center px-4 sm:px-6 lg:px-10 pt-[calc(6rem+var(--app-safe-top))] lg:pt-[calc(7rem+var(--app-safe-top))] pb-12 lg:pb-20 relative">
       
       {savedMatch && !hostedCode && !showTutorial && !showAuth && !showQuests && (
        <div className="w-full max-w-6xl mx-auto mb-5 bg-emerald-500 border border-emerald-400 p-4 rounded-2xl shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex flex-wrap justify-between items-center gap-3">
@@ -562,8 +542,8 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
       )}
 
       {showAuth && (
-          <div role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-20 pb-6 sm:py-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
-              <button onClick={() => setShowAuth(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-7 w-7" /></button>
+          <div role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-[calc(5rem+var(--app-safe-top))] pb-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
+              <button onClick={() => setShowAuth(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="fixed top-[calc(1rem+var(--app-safe-top))] right-4 p-2 text-slate-500 hover:text-white z-10"><XMarkIcon className="h-7 w-7" /></button>
               <KeyIcon className="h-16 w-16 shrink-0 text-emerald-400 mb-6" />
               <h2 id="auth-title" className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 shrink-0">{currentUser ? 'Fiókod' : txt.login}</h2>
               <p className="text-slate-400 text-sm font-bold mb-8 max-w-xs">{currentUser ? 'Sikeresen bejelentkeztél!' : txt.loginDesc}</p>
@@ -616,8 +596,8 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
 
       {/* --- KÜLDETÉSEK PANEL - FRISSÍTETT DIZÁJN --- */}
       {showQuests && (
-          <div role="dialog" aria-modal="true" aria-labelledby="quests-title" className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-16 pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
-              <button onClick={() => setShowQuests(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-7 w-7" /></button>
+          <div role="dialog" aria-modal="true" aria-labelledby="quests-title" className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-[calc(4rem+var(--app-safe-top))] pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
+              <button onClick={() => setShowQuests(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="fixed top-[calc(1rem+var(--app-safe-top))] right-4 p-2 text-slate-500 hover:text-white z-10"><XMarkIcon className="h-7 w-7" /></button>
               <ListBulletIcon className="h-12 w-12 text-cyan-400 mb-2" />
               <h2 id="quests-title" className="text-3xl font-black text-white uppercase italic mb-2 tracking-tighter">{txt.quests}</h2>
               <p className="text-xs text-slate-400 text-center mb-8 max-w-sm">{lang === 'hu' ? 'A célok ezen a készüléken követhetők. A teljesítés jelenleg nem ad XP-t.' : 'Progress is tracked on this device. Completing a goal does not award XP yet.'}</p>
@@ -675,7 +655,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
       )}
 
       {/* FEJLÉC GOMBOK ÉS STATISZTIKÁK */}
-      <div className="absolute top-4 left-4 right-4 flex justify-between items-center bg-[#12141a] p-2 rounded-2xl border border-slate-800 shadow-lg z-10">
+      <div className="absolute top-[calc(1rem+var(--app-safe-top))] left-4 right-4 flex justify-between items-center bg-[#12141a] p-2 rounded-2xl border border-slate-800 shadow-lg z-10">
         <div className="flex items-center gap-3 min-w-0">
             <button aria-label={lang === 'hu' ? 'Profil vagy bejelentkezés' : 'Profile or sign in'} onClick={() => currentUser ? onOpenProfile() : setShowAuth(true)} className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border transition-colors ${currentUser ? 'border-emerald-500/50 bg-slate-800 hover:border-emerald-400' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
                 <img src={getAvatar(currentUser)} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=Fallback&backgroundColor=0b0d11' }} className="h-6 w-6 rounded-full bg-slate-800" alt="avatar" />

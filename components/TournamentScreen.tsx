@@ -96,8 +96,8 @@ export function TournamentScreen({ onBack, onStartTournament }: TournamentScreen
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 overflow-y-auto overscroll-contain custom-scrollbar flex flex-col h-[100dvh]">
             
             {/* FEJLÉC */}
-            <div className="flex items-center justify-between p-4 sm:p-8 shrink-0 relative z-10">
-                <button onClick={step === 1 ? onBack : () => setStep((step - 1) as 1|2)} className="p-3 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 shadow-lg transition-all">
+            <div className="flex items-center justify-between px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] sm:px-8 sm:pb-8 shrink-0 relative z-10">
+                <button onClick={step === 1 ? onBack : () => setStep((step - 1) as 1|2)} aria-label="Vissza" className="p-3 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 shadow-lg transition-all">
                     <ArrowLeftIcon className="h-6 w-6 text-white" />
                 </button>
                 <div className="flex flex-col items-center absolute left-1/2 -translate-x-1/2">

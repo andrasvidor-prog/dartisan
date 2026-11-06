@@ -128,7 +128,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
     const progressPct = fullPlan.length > 0 ? Math.round((completedDays.length / fullPlan.length) * 100) : 0;
 
     return (
-        <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 py-6 sm:py-9 pb-16">
+        <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 pt-[calc(1rem+var(--app-safe-top))] pb-16">
             <header className="max-w-6xl mx-auto flex items-center gap-4 mb-7 sm:mb-9">
                 <button onClick={onBack} aria-label="Vissza" className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
                 <div className="min-w-0">

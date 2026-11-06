@@ -181,6 +181,7 @@ const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' |
 export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const [myStats, setMyStats]         = useState<ProfileStats | null>(null);
     const [viewedStats, setViewedStats] = useState<ProfileStats | null>(null);
+    const [profileError, setProfileError] = useState(false);
     const [isViewingOther, setIsViewingOther] = useState(false);
 
     const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
@@ -214,11 +215,17 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     useEffect(() => {
         const user = auth.currentUser;
         if (!user) return;
+        const fallback = normalizeProfile(user.uid, { name: user.displayName || user.email?.split('@')[0] || 'Player', photoURL: user.photoURL });
         const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-            if (!snap.exists()) return;
-            const s = normalizeProfile(user.uid, snap.data());
+            const s = snap.exists() ? normalizeProfile(user.uid, snap.data()) : fallback;
+            setProfileError(false);
             setMyStats(s);
             setViewedStats(previous => previous?.id && previous.id !== user.uid ? previous : s);
+        }, (error) => {
+            console.error('Profile could not be loaded:', error);
+            setProfileError(true);
+            setMyStats(fallback);
+            setViewedStats(previous => previous?.id && previous.id !== user.uid ? previous : fallback);
         });
         return () => unsub();
     }, []);
@@ -228,7 +235,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         const user = auth.currentUser;
         if (!user) return;
         const q = query(collection(db, 'users', user.uid, 'matchHistory'), orderBy('date', 'desc'), limit(20));
-        getDocs(q).then(snap => setMatchHistory(snap.docs.map(d => ({ ...d.data(), id: d.id }) as MatchHistory)));
+        getDocs(q).then(snap => setMatchHistory(snap.docs.map(d => ({ ...d.data(), id: d.id }) as MatchHistory))).catch(error => console.error('Match history could not be loaded:', error));
     }, []);
 
     // ── Load preference settings ──────────────────────────────────────────────
@@ -241,7 +248,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
             if (s.checkout)   setPrefCheckout(s.checkout);
             if (s.inputMode)  setPrefInputMode(s.inputMode);
             if (s.favDouble)  setPrefFavDouble(s.favDouble);
-        });
+        }).catch(error => console.error('Profile preferences could not be loaded:', error));
     }, []);
 
     const handleSaveSettings = async () => {
@@ -396,7 +403,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     // ─────────────────────────────────────────────────────────────────────────
     return (
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 overflow-y-auto h-[100dvh]">
-            <div className="p-4 sm:p-6 relative min-h-full w-full flex flex-col">
+            <div className="px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] sm:px-6 sm:pb-6 relative min-h-full w-full flex flex-col">
 
                 {/* Header */}
                 <div className="flex items-center justify-between p-3 shrink-0 bg-[#12141a] border border-slate-800 shadow-xl sticky top-0 z-20 mb-6 rounded-2xl">
@@ -415,6 +422,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                 </div>
 
                 <div className="max-w-3xl mx-auto pb-20 w-full flex-1">
+                    {profileError && <p role="status" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm font-bold text-amber-200">A felhőben tárolt profiladatok most nem érhetők el. Az alapadatok láthatók; próbáld újra később.</p>}
 
                     {/* Tab nav */}
                     <div className="flex gap-1.5 mb-8 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 shadow-xl overflow-x-auto">

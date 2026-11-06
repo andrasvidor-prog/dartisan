@@ -43,6 +43,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
     const [players, setPlayers] = useState<PlayerState[]>(initPlayers);
     const [activePlayer, setActivePlayer] = useState(0);
     const [pendingDarts, setPendingDarts]   = useState<{ target: number; mult: number }[]>([]);
+    const [turnHistory, setTurnHistory]     = useState<{ players: PlayerState[]; activePlayer: number }[]>([]);
     const [winner, setWinner]               = useState<PlayerState | null>(null);
     const [activeMult, setActiveMult]       = useState<1 | 2 | 3>(1);
     const [showTutorial, setShowTutorial]   = useState(() => shouldShowTutorial('cricket'));
@@ -77,6 +78,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
     };
 
     const applyDarts = (darts: { target: number; mult: number }[]) => {
+        setTurnHistory(previous => [...previous, { players, activePlayer }]);
         let nextPlayers = players;
         for (const { target, mult } of darts) nextPlayers = applyCricketDart(nextPlayers, activePlayer, target, mult, variant);
         setPlayers(nextPlayers);
@@ -91,7 +93,19 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
     };
 
     const handleUndo = () => {
-        setPendingDarts(prev => prev.slice(0, -1));
+        if (pendingDarts.length > 0 && pendingDarts.length < 3) {
+            setPendingDarts(previous => previous.slice(0, -1));
+            return;
+        }
+        const lastTurn = turnHistory[turnHistory.length - 1];
+        if (!lastTurn) return;
+        clearTimers();
+        setPlayers(lastTurn.players);
+        setActivePlayer(lastTurn.activePlayer);
+        setTurnHistory(previous => previous.slice(0, -1));
+        setPendingDarts([]);
+        setWinner(null);
+        setActiveMult(1);
     };
 
     const handleReset = () => {
@@ -99,6 +113,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
         setPlayers(initPlayers());
         setActivePlayer(0);
         setPendingDarts([]);
+        setTurnHistory([]);
         setWinner(null);
         setActiveMult(1);
     };
@@ -113,7 +128,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
             )}
 
             {/* Header */}
-            <div className="flex items-center justify-between p-4 bg-[#12141a] border-b border-slate-800 shrink-0">
+            <div className="flex items-center justify-between px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] bg-[#12141a] border-b border-slate-800 shrink-0">
                 <button onClick={onBack} aria-label={lang === 'hu' ? 'Vissza' : 'Back'} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                     <XMarkIcon className="h-6 w-6" />
                 </button>
@@ -207,7 +222,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
                             {pendingDarts[i] ? `${pendingDarts[i].mult > 1 ? (pendingDarts[i].mult === 3 ? 'T' : 'D') : ''}${pendingDarts[i].target === 25 ? 'B' : pendingDarts[i].target}` : '—'}
                         </div>
                     ))}
-                    <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Visszavonás' : 'Undo'} disabled={pendingDarts.length === 0}
+                    <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Visszavonás' : 'Undo'} disabled={pendingDarts.length === 0 && turnHistory.length === 0}
                         className="w-12 sm:w-14 h-10 sm:h-12 bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 disabled:opacity-30 border border-slate-700 active:scale-90 transition-transform">
                         <BackspaceIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                     </button>

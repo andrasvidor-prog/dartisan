@@ -356,7 +356,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 flex flex-col h-[100dvh]">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-4 bg-[#12141a] border-b border-slate-800 shrink-0">
+            <div className="flex items-center justify-between px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] bg-[#12141a] border-b border-slate-800 shrink-0">
                 <button onClick={onBack} aria-label="Vissza" className="p-2.5 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all">
                     <ArrowLeftIcon className="h-5 w-5"/>
                 </button>

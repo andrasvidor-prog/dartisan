@@ -3,6 +3,13 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --app-safe-top: env(safe-area-inset-top, 0px);
+}
+
+@media (max-width: 1279px), (pointer: coarse) {
+  :root {
+    --app-safe-top: max(3rem, env(safe-area-inset-top, 0px));
+  }
 }
 
 @media (prefers-color-scheme: dark) {

@@ -307,7 +307,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
 
     return (
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 flex flex-col h-[100dvh]">
-            <div className="flex items-center justify-between p-4 shrink-0 bg-[#12141a] border-b border-slate-800 shadow-xl z-20">
+            <div className="flex items-center justify-between px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] shrink-0 bg-[#12141a] border-b border-slate-800 shadow-xl z-20">
                 <button onClick={onBack} aria-label="Vissza" className="h-11 w-11 shrink-0 flex items-center justify-center bg-slate-800 rounded-xl hover:bg-slate-700 transition-colors"><ArrowLeftIcon className="h-5 w-5 text-white" /></button>
                 <div className="flex-1 min-w-0 mx-2 flex flex-col items-center">
                     <h1 title={config.name} className="max-w-full truncate text-base sm:text-xl font-black text-white uppercase italic tracking-widest leading-none">{config.name}</h1>

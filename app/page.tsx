@@ -35,7 +35,7 @@ export default function Home() {
   const [matchResult, setMatchResult] = useState<{ winnerId: string; score1: number; score2: number; tournamentMatchId?: string; isGroupMatch?: boolean } | null>(null);
   const isMounted = useSyncExternalStore(subscribeMounted, () => true, () => false);
   
-  const [currentUser, setCurrentUser] = useState<(User & { xp?: number; streak?: number; tag?: number }) | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userLevel, setUserLevel] = useState(1);
   const [userStreak, setUserStreak] = useState(1);
 
@@ -50,14 +50,15 @@ export default function Home() {
 
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
           if (user && !user.isAnonymous) {
+              setCurrentUser(user);
               const docRef = doc(db, 'users', user.uid);
+              try {
               if (SERVER_MATCH_ENABLED) {
                   try {
                       const syncLogin = httpsCallable<Record<string, never>, { streak: number }>(functions, 'syncLoginStreak');
                       const result = await syncLogin({});
                       const snapshot = await getDocFromServer(docRef);
                       const data = snapshot.data() || {};
-                      setCurrentUser({ ...user, ...data });
                       setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
                       setUserStreak(result.data.streak);
                       syncPublicProfile(user.uid, {
@@ -69,7 +70,6 @@ export default function Home() {
                       const snapshot = await getDocFromServer(docRef);
                       if (snapshot.exists()) {
                           const data = snapshot.data();
-                          setCurrentUser({ ...user, ...data });
                           setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
                           setUserStreak(data.streak || 1);
                       }
@@ -84,8 +84,11 @@ export default function Home() {
               const todayStr = serverNow.toISOString().split('T')[0];
 
               if (docSnap.exists() && docSnap.data().createdAt) {
-                  const data = docSnap.data();
-                  setCurrentUser({ ...user, ...data });
+                  const data = { ...docSnap.data() };
+                  if (!Number.isInteger(data.tag) || data.tag < 1000 || data.tag > 9999) {
+                      data.tag = Math.floor(1000 + Math.random() * 9000);
+                      await updateDoc(docRef, { tag: data.tag });
+                  }
                   syncPublicProfile(user.uid, data).catch(error => console.error('Public profile sync:', error));
                   setUserLevel(Math.floor(Math.sqrt(Math.max(data.xp || 0, 0) / 100)) + 1);
 
@@ -118,12 +121,16 @@ export default function Home() {
                   };
                   await setDoc(docRef, initialProfile, { merge: true });
                   syncPublicProfile(user.uid, initialProfile).catch(error => console.error('Public profile sync:', error));
-                  setCurrentUser({ ...user, displayName, tag: randomTag });
                   setUserLevel(1);
                   setUserStreak(1);
               }
+              } catch (error) {
+                  console.error('Profile initialization failed:', error);
+              }
           } else {
               setCurrentUser(null);
+              setUserLevel(1);
+              setUserStreak(1);
           }
       });
       return () => unsubscribe();
@@ -161,6 +168,7 @@ export default function Home() {
         <div inert={showTournament} aria-hidden={showTournament} className="w-full">
         <SetupScreen 
           lang={lang} 
+          initialTab={matchConfig?.gameMode === 'career' ? 'career' : matchConfig?.gameMode === 'practice' ? 'practice' : matchConfig?.gameMode === 'challenge' ? 'challenge' : matchConfig?.gameMode === 'cricket' ? 'cricket' : 'x01'}
           userLevel={userLevel}
           userStreak={userStreak}
           onStart={(config) => {

@@ -238,23 +238,23 @@ export function TutorialOverlay({ tutorialKey, onClose }: TutorialOverlayProps) 
     };
 
     return (
-        <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#12141a] rounded-[2rem] border border-slate-700 shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ paddingTop: 'calc(1rem + var(--app-safe-top))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+            <div role="dialog" aria-modal="true" aria-label={tut.label} className="w-full max-w-md bg-[#12141a] rounded-[2rem] border border-slate-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100dvh - var(--app-safe-top) - env(safe-area-inset-bottom) - 2rem)' }}>
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-slate-800">
+                <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-slate-800 shrink-0">
                     <div className="flex items-center gap-2">
                         <LightBulbIcon className="h-5 w-5 text-amber-400" />
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
                             {tut.label} – Tutorial
                         </span>
                     </div>
-                    <button onClick={handleClose} className="p-1.5 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+                    <button onClick={handleClose} aria-label="Bezárás" className="p-1.5 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                         <XMarkIcon className="h-4 w-4" />
                     </button>
                 </div>
 
                 {/* Step content */}
-                <div className="px-6 py-6">
+                <div className="px-6 py-6 min-h-0 overflow-y-auto">
                     <div className="text-5xl text-center mb-4">{current.emoji}</div>
                     <h2 className="text-xl font-black text-white text-center uppercase italic mb-3">{current.title}</h2>
                     <p className="text-sm text-slate-300 text-center leading-relaxed mb-4">{current.body}</p>
@@ -267,7 +267,7 @@ export function TutorialOverlay({ tutorialKey, onClose }: TutorialOverlayProps) 
                 </div>
 
                 {/* Progress + navigation */}
-                <div className="px-6 pb-5">
+                <div className="px-6 pb-5 shrink-0">
                     {/* Dots */}
                     <div className="flex justify-center gap-1.5 mb-4">
                         {tut.steps.map((_, i) => (

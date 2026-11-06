@@ -271,7 +271,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
 
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="fixed inset-0 z-[100] bg-[#0b0d11] text-slate-200 flex flex-col overflow-y-auto px-4 pb-24 pt-4">
+        <div className="fixed inset-0 z-[100] bg-[#0b0d11] text-slate-200 flex flex-col overflow-y-auto px-4 pb-24 pt-[calc(1rem+var(--app-safe-top))]">
 
             {/* Háttér díszítés */}
             <div className="absolute inset-0 z-0 opacity-[0.03] scale-150 pointer-events-none flex items-center justify-center">

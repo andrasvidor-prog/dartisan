@@ -364,9 +364,10 @@ const COLOR_STYLES: Record<string, string> = {
 };
 
 const HUNTER_TARGETS = ['D20', 'D16', 'D10', 'D8', 'D12', 'T20', 'T19', 'T18', 'BULL'];
+const randomHunterTarget = () => HUNTER_TARGETS[Math.floor(Math.random() * HUNTER_TARGETS.length)];
 const makeMathQuestion = () => {
     const isTreble = Math.random() > 0.3;
-    const start = Math.floor(Math.random() * 80) + 40;
+    const start = Math.floor(Math.random() * 80) + 60;
     const dartVal = Math.floor(Math.random() * 20) + 1;
     const mult = isTreble ? 3 : (Math.random() > 0.5 ? 2 : 1);
     return { start, dartText: (mult === 3 ? 'T' : mult === 2 ? 'D' : 'S') + dartVal, ans: start - dartVal * mult };
@@ -419,6 +420,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [celebration, setCelebration] = useState<{type: 'checkout', main: string, sub: string, color: string} | null>(null);
   const [inputMode, setInputMode] = useState<'detailed' | 'fast' | 'board'>(() => {
     const resumedMode = config.resumeState?.inputMode;
+    if (config.gameMode === 'practice' && resumedMode !== 'board') return 'detailed';
     if (config.checkIn !== 'single' && resumedMode === 'fast') return 'detailed';
     if (resumedMode === 'detailed' || resumedMode === 'fast' || resumedMode === 'board') return resumedMode;
     if (config.checkIn !== 'single') return 'detailed';
@@ -468,8 +470,6 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       fetchSettings();
   }, []);
 
-  const isBotRunning = useRef(false);
-
   const [practiceStatus, setPracticeStatus] = useState<'playing' | 'won' | 'lost' | 'won_121_round'>('playing');
   const [practiceTarget, setPracticeTarget] = useState(1);
   const [bobsScore, setBobsScore] = useState(27);
@@ -488,7 +488,6 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [mathQuestion, setMathQuestion] = useState(makeMathQuestion);
   const [mathInput, setMathInput] = useState('');
 
-  const [showRulesOverlay, setShowRulesOverlay] = useState<boolean>(['practice', 'career'].includes(config.gameMode) && !config.resumeState);
   const [tvMode, setTvMode] = useState(false);
 
   // Tutorial: show once per mode
@@ -560,22 +559,17 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       return { val: Math.floor(Math.random() * 20) + 1, mult: 1 };
   }, []);
 
-  const handleFastEnterRef = useRef<((pts?: number) => void) | null>(null);
-  const processDartRef = useRef<((val: number, mult: number) => void) | null>(null);
+  const handleFastEnterRef = useRef<((pts: number, fromBot: boolean) => void) | null>(null);
+  const processDartRef = useRef<((val: number, mult: number, fromBot: boolean) => void) | null>(null);
   const statsSavedRef = useRef(false);
   const matchIdRef = useRef<string>(config.resumeState?.matchId || crypto.randomUUID());
 
   useEffect(() => {
     const currentPlayer = players[activePlayer];
-    if (!currentPlayer?.isBot || isLegWinner || isSetWinner || isMatchWinner || practiceStatus !== 'playing' || asyncState !== 'playing' || showRulesOverlay) {
-        isBotRunning.current = false;
-        return;
-    }
-    if (isBotRunning.current) return;
+    if (!currentPlayer?.isBot || isLegWinner || isSetWinner || isMatchWinner || practiceStatus !== 'playing' || asyncState !== 'playing' || showTutorial) return;
 
     if (inputMode === 'fast') {
         if (currentDarts.length === 0) {
-            isBotRunning.current = true;
             const timer = setTimeout(() => {
                 let turnTotal = 0;
                 for (let i = 0; i < 3; i++) {
@@ -591,25 +585,22 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                     turnTotal += dartPoints;
                     if (predictedScore === 0) break;
                 }
-                if (handleFastEnterRef.current) handleFastEnterRef.current(turnTotal);
-                isBotRunning.current = false;
+                if (handleFastEnterRef.current) handleFastEnterRef.current(turnTotal, true);
             }, 1500); 
             return () => clearTimeout(timer);
         }
     } else {
         if (currentDarts.length < 3) {
-            isBotRunning.current = true;
             const timer = setTimeout(() => {
                 let currentSubScore = currentPlayer.score;
                 currentDarts.forEach(d => currentSubScore -= (d.val * d.mult));
                 const dart = getBotDart(currentPlayer.difficulty, currentSubScore);
-                if (processDartRef.current) processDartRef.current(dart.val, dart.mult);
-                isBotRunning.current = false;
+                if (processDartRef.current) processDartRef.current(dart.val, dart.mult, true);
             }, 800); 
             return () => clearTimeout(timer);
         }
     }
-  }, [activePlayer, currentDarts.length, inputMode, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, asyncState, showRulesOverlay, getBotDart, config.checkout, players]);
+  }, [activePlayer, currentDarts, inputMode, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, asyncState, showTutorial, getBotDart, config.checkout, players]);
 
   const generateAiFeedback = (player: PlayerData) => {
       const avg = ((player.totalPoints / (player.totalDarts || 1)) * 3).toFixed(1);
@@ -981,9 +972,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     });
   }, [config, players, announceScore, triggerCelebration, txt]);
 
-  const processDart = useCallback((val: number, mult: number) => {
-    if (isLegWinner || isSetWinner || isMatchWinner || practiceStatus === 'lost' || practiceStatus === 'won' || practiceStatus === 'won_121_round' || showRulesOverlay || currentDarts.length >= 3 || asyncState !== 'playing') return;
+  const processDart = useCallback((val: number, mult: number, fromBot = false) => {
+    if (isLegWinner || isSetWinner || isMatchWinner || practiceStatus === 'lost' || practiceStatus === 'won' || practiceStatus === 'won_121_round' || showTutorial || currentDarts.length >= 3 || asyncState !== 'playing') return;
     const activeP = players[activePlayer]; 
+    if (activeP.isBot && !fromBot) return;
     const dartPoints = val * mult;
 
     if (val === 0) triggerHaptic('miss'); else triggerHaptic('hit');
@@ -1137,7 +1129,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (validPts === 180) announceScore('', true, false); 
         else announceScore(validPts.toString()); 
     }
-  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showRulesOverlay, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt]);
+  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt]);
 
   const handleDartPress = (val: number, overrideMult?: number) => { 
       triggerHaptic('tap');
@@ -1147,7 +1139,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       setActiveMult(1); 
   };
 
-  const handleFastEnter = useCallback((overridePts?: number, confirmedDarts?: 1 | 2 | 3, doubleConfirmed = false) => {
+  const handleFastEnter = useCallback((overridePts?: number, confirmedDarts?: 1 | 2 | 3, doubleConfirmed = false, fromBot = false) => {
     if ((input === '' && overridePts === undefined) || isLegWinner || isSetWinner || isMatchWinner || config.gameMode === 'practice' || asyncState !== 'playing') return;
     const pts = overridePts !== undefined ? overridePts : parseInt(input); 
     
@@ -1156,6 +1148,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     }
     
     const activeP = players[activePlayer]; 
+    if (activeP.isBot && !fromBot) return;
     const tScore = activeP.score - pts;
     const isBust = config.checkout !== 'single' ? (tScore < 0 || tScore === 1) : (tScore < 0);
     const isOut = tScore === 0;
@@ -1237,8 +1230,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     setInput('');
   }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore]);
 
-  useEffect(() => { handleFastEnterRef.current = handleFastEnter; }, [handleFastEnter]);
-  useEffect(() => { processDartRef.current = processDart; }, [processDart]);
+  useEffect(() => { handleFastEnterRef.current = (pts, fromBot) => handleFastEnter(pts, undefined, false, fromBot); }, [handleFastEnter]);
+  useEffect(() => { processDartRef.current = (val, mult, fromBot) => processDart(val, mult, fromBot); }, [processDart]);
 
   useEffect(() => {
     if (currentDarts.length === 3 && !isLegWinner && !isSetWinner && !isMatchWinner && practiceStatus === 'playing') {
@@ -1289,7 +1282,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           } catch (error) { console.error("Hőtérkép mentés hiba:", error); }
       }
       if (hunterRound >= 10) { setPracticeStatus('won'); triggerCelebration('checkout', `${hunterTotalHits + hits}/30`, 'Heatmap Updated!', players[0].color); } 
-      else { setHunterRound(prev => prev + 1); setHunterTargetStr(HUNTER_TARGETS[Math.floor(Math.random() * HUNTER_TARGETS.length)]); }
+      else { setHunterRound(prev => prev + 1); setHunterTargetStr(randomHunterTarget()); }
   };
 
   const handleMathEnter = () => {
@@ -1343,8 +1336,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       if (config.gameMode === 'practice') { 
           setPracticeTarget(1); setBobsScore(27); setBobsRoundScore(0); 
           if (config.practiceType === '121') { setC121Target(121); setC121DartsLeft(9); setPlayers(prev => [{...prev[0], score: 121, history: []}]); }
-          if (config.practiceType === 'hunter') { setHunterRound(1); setHunterTotalHits(0); }
-          if (config.practiceType === 'math') { setMathRound(1); setMathScore(0); generateMathQuestion(); }
+          if (config.practiceType === 'hunter') { setHunterRound(1); setHunterTotalHits(0); setHunterTargetStr(HUNTER_TARGETS[0]); }
+          if (config.practiceType === 'math') { setMathRound(1); setMathScore(0); setMathInput(''); generateMathQuestion(); }
           setPracticeStatus('playing'); setCurrentDarts([]); return; 
       }
       
@@ -1435,11 +1428,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const colBg = activeColorTheme.split(' ')[3] || 'bg-emerald-500';
 
   const isBotTurn = safePlayer?.isBot && !isAsync;
+  const isStandalonePractice = config.gameMode === 'practice' && (config.practiceType === 'hunter' || config.practiceType === 'math');
+  const practiceName = config.practiceType === 'around' ? 'Around Clock' : config.practiceType === 'bobs27' ? "Bob's 27" : config.practiceType === '121' ? '121 Challenge' : config.practiceType === 'hunter' ? (lang === 'hu' ? 'Célpont vadász' : 'Target Hunter') : config.practiceType === 'math' ? 'Darts Math' : (lang === 'hu' ? 'AI edzés' : 'AI drill');
 
   const recObj = getCheckoutTable(safePlayer.score, 3 - currentDarts.length);
 
   return (
-    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-3">
+    <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-[calc(1rem+var(--app-safe-top))]">
       <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto mb-2 flex items-center justify-between shrink-0">
         <div className="text-[10px] sm:text-xs font-black tracking-[0.2em] text-emerald-400 uppercase">Dartisan <span className="text-slate-500">· {config.gameMode === 'challenge' ? (lang === 'hu' ? 'Online meccs' : 'Online match') : (lang === 'hu' ? 'Mérkőzés' : 'Match')}</span></div>
         <div className="flex items-center gap-2">
@@ -1457,12 +1452,24 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               return (
                   <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[94px] sm:min-h-[108px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
                       <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
-                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{pl.score}</span>
-                      <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</span>
+                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.score}</span>
+                      <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{config.gameMode === 'practice' ? practiceName : <>{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</>}</span>
                   </div>
               );
           })}
       </div>
+
+      {config.gameMode === 'practice' && (
+        <section aria-label={lang === 'hu' ? 'Edzés állása' : 'Training progress'} className="w-full max-w-[1100px] mx-auto px-3 sm:px-6 pb-3 shrink-0">
+          <div className="rounded-2xl border border-cyan-500/25 bg-gradient-to-r from-cyan-500/10 to-[#12141a] p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-2"><span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">{practiceName}</span><span className="text-[10px] font-black text-slate-400">{config.practiceType === 'around' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'bobs27' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'hunter' ? `${hunterRound}/10` : config.practiceType === 'math' ? `${mathRound}/10` : config.practiceType === '121' ? `${c121DartsLeft} ${lang === 'hu' ? 'nyíl maradt' : 'darts left'}` : `${currentDarts.length}/3`}</span></div>
+            <p className="text-sm sm:text-base font-black text-white">{config.practiceType === 'around' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'BULL' : practiceTarget}` : config.practiceType === 'bobs27' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'D-BULL' : `D${practiceTarget}`} · ${lang === 'hu' ? 'Pont' : 'Score'}: ${bobsScore}` : config.practiceType === '121' ? `${lang === 'hu' ? 'Kiszálló' : 'Checkout'}: ${c121Target} · ${lang === 'hu' ? 'Maradék' : 'Remaining'}: ${players[0]?.score}` : config.practiceType === 'hunter' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${hunterTargetStr} · ${hunterTotalHits}/30 ${lang === 'hu' ? 'találat' : 'hits'}` : config.practiceType === 'math' ? `${mathQuestion.start} − ${mathQuestion.dartText} = ?` : `${lang === 'hu' ? 'Célpont' : 'Target'}: ${config.drillTarget ?? 20}`}</p>
+            {config.practiceType === 'hunter' && practiceStatus === 'playing' && <div className="grid grid-cols-4 gap-2 mt-3">{[0, 1, 2, 3].map(hits => <button key={hits} type="button" onClick={() => handleHunterHit(hits)} className="min-h-12 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 font-black text-sm hover:bg-cyan-500/25">{hits} {lang === 'hu' ? 'találat' : 'hits'}</button>)}</div>}
+            {config.practiceType === 'math' && practiceStatus === 'playing' && <form onSubmit={event => { event.preventDefault(); handleMathEnter(); }} className="flex gap-2 mt-3"><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={lang === 'hu' ? 'Eredmény' : 'Answer'} value={mathInput} onChange={event => setMathInput(event.target.value.replace(/\D/g, '').slice(0, 3))} className="min-w-0 flex-1 h-12 rounded-xl bg-slate-950 border border-slate-700 px-4 text-white font-mono font-bold outline-none focus:border-cyan-400"/><button type="submit" disabled={!mathInput} className="h-12 px-4 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase disabled:opacity-40">{lang === 'hu' ? 'Ellenőrzés' : 'Check'}</button></form>}
+            {practiceStatus === 'won_121_round' && <p className="text-xs font-bold text-emerald-300 mt-2">{lang === 'hu' ? 'Sikeres kiszálló! A következő célpont indul.' : 'Checkout complete! The next target is starting.'}</p>}
+          </div>
+        </section>
+      )}
 
       <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
         <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Soron' : 'Turn'}</div><div className={`text-sm font-black truncate ${colTxt}`}>{safePlayer?.name}</div></div>
@@ -1470,7 +1477,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? '3 nyilas átlag' : '3-dart avg'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.totalDarts ? ((safePlayer.totalPoints / safePlayer.totalDarts) * 3).toFixed(1) : '—'}</div></div>
       </div>
 
-      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full mx-auto flex flex-col relative shrink-0 ${inputMode === 'board' ? 'max-w-[1100px] pt-2 pb-2' : 'max-w-[760px] pt-3 pb-6 sm:pb-4'}`}>
+      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full mx-auto flex-col relative shrink-0 ${isStandalonePractice ? 'hidden' : 'flex'} ${inputMode === 'board' ? 'max-w-[1100px] pt-2 pb-2' : 'max-w-[760px] pt-3 pb-6 sm:pb-4'}`}>
 
         {/* Checkout suggestion bar */}
         <div className={`w-full flex items-center justify-center transition-all ${recObj ? 'min-h-[46px] mb-3' : 'hidden'}`}>
@@ -1494,7 +1501,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         <div className="flex gap-2 w-full mb-3 shrink-0">
             <button onClick={() => setInputMode('detailed')} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'detailed' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Pro</button>
             <button onClick={() => setInputMode('board')}    className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Tábla</button>
-            <button onClick={() => setInputMode('fast')} disabled={config.checkIn !== 'single'} title={config.checkIn !== 'single' ? (lang === 'hu' ? 'Dupla vagy Master beszállónál nyilankénti bevitel szükséges' : 'Dart-by-dart input is required for double or Master entry') : undefined} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'} disabled:opacity-40 disabled:cursor-not-allowed`}>Fast</button>
+            <button onClick={() => setInputMode('fast')} disabled={config.checkIn !== 'single' || config.gameMode === 'practice'} title={config.gameMode === 'practice' ? (lang === 'hu' ? 'Az edzéshez nyilankénti bevitel szükséges' : 'Training requires dart-by-dart input') : config.checkIn !== 'single' ? (lang === 'hu' ? 'Dupla vagy Master beszállónál nyilankénti bevitel szükséges' : 'Dart-by-dart input is required for double or Master entry') : undefined} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'} disabled:opacity-40 disabled:cursor-not-allowed`}>Fast</button>
         </div>
 
         {/* ── PRO / DETAILED INPUT ── */}
@@ -1564,7 +1571,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             {/* Quick score buttons */}
             <div className="flex gap-2">
                 {quickButtons.map(qb => (
-                    <button key={qb} onClick={() => handleFastEnter(qb)}
+                    <button key={qb} disabled={isBotTurn} onClick={() => handleFastEnter(qb)}
                         className="flex-1 bg-slate-800/80 text-emerald-400 border border-slate-700 h-10 sm:h-12 rounded-xl font-mono font-black text-sm sm:text-base active:scale-95 transition-transform">{qb}</button>
                 ))}
             </div>
@@ -1576,15 +1583,26 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             {/* Numpad */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {[1,2,3,4,5,6,7,8,9,0].map(n => (
-                    <button key={n} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing') setInput(input+n); }}
+                    <button key={n} disabled={isBotTurn} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing' && !isBotTurn) setInput(input+n); }}
                         className={`h-14 sm:h-16 md:h-18 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl md:text-4xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
                 ))}
-                <button onClick={() => handleFastEnter()}
+                <button disabled={isBotTurn} onClick={() => handleFastEnter()}
                     className={`h-14 sm:h-16 md:h-18 rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs md:text-xl font-black uppercase active:scale-95 transition-transform`}>Enter</button>
             </div>
             </div>
         )}
       </div>
+
+      {config.gameMode === 'practice' && (practiceStatus === 'won' || practiceStatus === 'lost') && (
+        <div role="dialog" aria-modal="true" aria-label={lang === 'hu' ? 'Edzés eredménye' : 'Training result'} className="fixed inset-0 z-[110] bg-[#0b0d11]/95 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl border border-cyan-500/30 bg-[#121821] p-6 sm:p-8 text-center shadow-2xl">
+            <TrophyIcon className={`w-14 h-14 mx-auto mb-4 ${practiceStatus === 'won' ? 'text-emerald-400' : 'text-rose-400'}`} />
+            <h2 className="text-2xl font-black text-white uppercase mb-2">{practiceStatus === 'won' ? (lang === 'hu' ? 'Edzés kész!' : 'Training complete!') : (lang === 'hu' ? 'Edzés vége' : 'Training over')}</h2>
+            <p className="text-sm text-slate-300 mb-6">{practiceName}</p>
+            <div className="grid grid-cols-2 gap-3"><button type="button" onClick={handleExit} className="h-12 rounded-xl bg-slate-700 text-white text-xs font-black uppercase">{lang === 'hu' ? 'Vissza' : 'Back'}</button><button type="button" onClick={handleNextLegOrSet} className="h-12 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase">{lang === 'hu' ? 'Újra' : 'Retry'}</button></div>
+          </div>
+        </div>
+      )}
 
       {pendingCheckout !== null && (
         <div className="fixed inset-0 z-[120] bg-black/85 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={lang === 'hu' ? 'Kiszálló megerősítése' : 'Confirm checkout'}>
@@ -1732,7 +1750,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         <div className="fixed inset-0 z-[300] bg-[#050508] flex flex-col select-none">
           {/* Close */}
           <button onClick={() => setTvMode(false)}
-              className="absolute top-4 right-4 z-10 p-2.5 bg-slate-800 rounded-full border border-slate-700 hover:bg-slate-700 transition-colors">
+              aria-label={lang === 'hu' ? 'TV nézet bezárása' : 'Close TV view'} className="absolute top-[calc(1rem+var(--app-safe-top))] right-4 z-10 p-2.5 bg-slate-800 rounded-full border border-slate-700 hover:bg-slate-700 transition-colors">
               <XMarkIcon className="h-6 w-6 text-white" />
           </button>
 
