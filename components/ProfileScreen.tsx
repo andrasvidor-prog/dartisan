@@ -5,9 +5,10 @@ import {
     TrophyIcon, ArrowLeftIcon, ChartBarIcon, StarIcon, FireIcon,
     ArrowPathIcon, MagnifyingGlassIcon, PencilIcon, UserPlusIcon,
     UsersIcon, CheckCircleIcon, XMarkIcon, ShieldCheckIcon, BoltIcon,
-    CalendarDaysIcon, InformationCircleIcon
+    CalendarDaysIcon, InformationCircleIcon, ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 import { db, auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 import {
     doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
@@ -276,6 +277,16 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         URL.revokeObjectURL(url);
     };
 
+    const handleSignOut = async () => {
+        try {
+            await signOut(auth);
+            onBack();
+        } catch (error) {
+            console.error('Sign-out failed:', error);
+            alert('A kijelentkezés nem sikerült. Próbáld újra.');
+        }
+    };
+
     // ── Heatmap (real-time, load when tab is active) ──────────────────────────
     useEffect(() => {
         if (activeTab !== 'analytics') return;
@@ -407,18 +418,18 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
                 {/* Header */}
                 <div className="flex items-center justify-between p-3 shrink-0 bg-[#12141a] border border-slate-800 shadow-xl sticky top-0 z-20 mb-6 rounded-2xl">
-                    <button onClick={onBack} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all">
+                    <button onClick={onBack} aria-label="Vissza" className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all">
                         <ArrowLeftIcon className="h-5 w-5 text-white" />
                     </button>
                     <h1 className="text-xl font-black text-white uppercase italic tracking-widest">
                         {isViewingOther ? stats.name : 'Profil'}
                     </h1>
                     {isViewingOther ? (
-                        <button onClick={() => { setIsViewingOther(false); if (myStats) setViewedStats(myStats); }}
+                        <button onClick={() => { setIsViewingOther(false); if (myStats) setViewedStats(myStats); }} aria-label="Másik profil bezárása"
                             className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-all">
                             <XMarkIcon className="h-5 w-5 text-white" />
                         </button>
-                    ) : <div className="w-9" />}
+                    ) : <button onClick={handleSignOut} aria-label="Kijelentkezés" title="Kijelentkezés" className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-all"><ArrowRightOnRectangleIcon className="h-5 w-5 text-slate-300" /></button>}
                 </div>
 
                 <div className="max-w-3xl mx-auto pb-20 w-full flex-1">
@@ -591,6 +602,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                 </button>
                             </div>
                             )}
+                            {!isViewingOther && <button type="button" onClick={handleSignOut} className="w-full min-h-12 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 text-sm font-black uppercase text-rose-300 hover:bg-rose-500/20">Kijelentkezés</button>}
                         </div>
                     )}
 
@@ -747,7 +759,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                     onKeyDown={e => e.key === 'Enter' && handleSearch()}
                                     className="flex-1 h-12 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-cyan-500 transition-colors"
                                 />
-                                <button onClick={handleSearch}
+                                <button onClick={handleSearch} aria-label="Játékos keresése"
                                     className="w-12 h-12 bg-cyan-500 rounded-xl text-slate-950 flex items-center justify-center hover:bg-cyan-400 active:scale-95 transition-all">
                                     <MagnifyingGlassIcon className="h-5 w-5" />
                                 </button>
