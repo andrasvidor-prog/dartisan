@@ -13,6 +13,7 @@ import { TournamentScreen } from '../components/TournamentScreen';
 import { SettingsScreen } from '../components/SettingsScreen';
 import { ClubScreen } from '../components/ClubScreen';
 import { CricketScreen } from '../components/CricketScreen';
+import { TrainingLab } from '../components/TrainingLab';
 import { auth, db, functions } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
@@ -26,7 +27,7 @@ const subscribeMounted = () => () => {};
 
 export default function Home() {
   const scrollContainerRef = useRef<HTMLElement>(null);
-  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket'>('setup');
+  const [currentScreen, setCurrentScreen] = useState<'setup' | 'match' | 'profile' | 'coach' | 'custom_tournament' | 'settings' | 'club' | 'cricket' | 'training_lab'>('setup');
   const [lang, setLang] = useState<Language>(() => typeof window !== 'undefined' && localStorage.getItem('dartisan_lang') === 'en' ? 'en' : 'hu');
   const [matchConfig, setMatchConfig] = useState<MatchConfig | null>(null);
   const [matchInstance, setMatchInstance] = useState(0);
@@ -152,6 +153,8 @@ export default function Home() {
             lang={lang}
         />
       )}
+
+      {currentScreen === 'training_lab' && <TrainingLab lang={lang} onBack={() => setCurrentScreen('setup')} />}
       
       {currentScreen === 'setup' && (
         <SetupScreen 
@@ -170,6 +173,7 @@ export default function Home() {
           }}
           onOpenProfile={() => setCurrentScreen('profile')} 
           onOpenCoach={() => setCurrentScreen('coach')}
+          onOpenTrainingLab={() => setCurrentScreen('training_lab')}
           onStartTournament={() => setShowTournament(true)} 
           onOpenSettings={() => setCurrentScreen('settings')}
           onOpenClub={() => setCurrentScreen('club')} 

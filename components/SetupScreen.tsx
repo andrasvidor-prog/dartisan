@@ -7,7 +7,7 @@ import {
     SpeakerWaveIcon, SpeakerXMarkIcon, PaperAirplaneIcon, 
     ArrowRightEndOnRectangleIcon, TrophyIcon, FireIcon, GlobeEuropeAfricaIcon, 
     ChevronRightIcon, ListBulletIcon, CheckCircleIcon, KeyIcon, EyeIcon, 
-    EyeSlashIcon, ChartBarIcon, UsersIcon, Cog6ToothIcon, ShieldCheckIcon
+    EyeSlashIcon, ChartBarIcon, UsersIcon, Cog6ToothIcon, ShieldCheckIcon, SparklesIcon
 } from '@heroicons/react/24/outline';
 import type { Language } from '@/app/page';
 import type { User } from 'firebase/auth';
@@ -106,6 +106,7 @@ interface SetupScreenProps {
   onStart: (config: MatchConfig) => void;
   onOpenProfile: () => void;
   onOpenCoach?: () => void;
+  onOpenTrainingLab: () => void;
   onStartTournament: () => void;
   onOpenSettings: () => void; 
   onOpenClub: () => void;
@@ -113,7 +114,7 @@ interface SetupScreenProps {
   userStreak?: number; // <- ÚJ: Külső state a page.tsx-ből
 }
 
-export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
+export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenTrainingLab, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
   const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>('x01');
   const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
   const [cricketGuestName, setCricketGuestName] = useState('Játékos 2');
@@ -645,6 +646,11 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
         <p className="hidden sm:block text-sm text-slate-400 font-medium mt-3 max-w-2xl">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
       </header>
 
+      <button type="button" onClick={onOpenTrainingLab} className="w-full min-h-20 mb-6 rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/20 via-[#182330] to-[#12141a] px-5 py-4 text-left flex items-center justify-between gap-4 hover:border-cyan-400 hover:bg-cyan-500/20 transition-all lg:col-span-2 lg:row-start-2">
+        <span className="flex items-center gap-4 min-w-0"><span className="h-12 w-12 shrink-0 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center"><SparklesIcon className="h-7 w-7" /></span><span className="min-w-0"><span className="text-[10px] font-black text-cyan-300 uppercase tracking-[0.2em] block">{lang === 'hu' ? 'Új • 8 játszható mód' : 'New • 8 playable drills'}</span><span className="text-lg sm:text-xl font-black text-white uppercase block">{lang === 'hu' ? 'Edzéslabor' : 'Training lab'}</span><span className="text-xs text-slate-300 block">{lang === 'hu' ? 'Duplák, T20, Bull, Shanghai, Count-Up és további edzések' : 'Doubles, T20, Bull, Shanghai, Count-Up and more'}</span></span></span>
+        <ChevronRightIcon className="h-6 w-6 text-cyan-300 shrink-0" />
+      </button>
+
       {/* --- QUICK START GOMB --- */}
       {tab === 'x01' && (
         <button 
@@ -661,13 +667,13 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
                 checkout: 'double', 
                 muteCaller: muteCaller 
             })} 
-            className="w-full h-16 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform lg:col-start-1 lg:row-start-2"
+            className="w-full h-16 mb-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 text-sm font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 transition-transform lg:col-start-1 lg:row-start-3"
         >
             {txt.quickMatch}
         </button>
       )}
 
-      <div className="w-full flex flex-col gap-2 mb-6 lg:col-start-2 lg:row-start-2 lg:row-span-2">
+      <div className="w-full flex flex-col gap-2 mb-6 lg:col-start-2 lg:row-start-3 lg:row-span-2">
           <div className="flex bg-[#12141a] rounded-xl p-1 border border-slate-800 shadow-lg">
             <button onClick={() => setTab('x01')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'x01' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.local}</button>
             <button onClick={() => setTab('challenge')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${tab === 'challenge' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>{txt.challenge}</button>
@@ -686,7 +692,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
           </div>
       </div>
 
-      <button onClick={onStartTournament} className={`w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0 lg:col-start-1 ${tab === 'x01' ? 'lg:row-start-3' : 'lg:row-start-2'}`}>
+      <button onClick={onStartTournament} className={`w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0 lg:col-start-1 ${tab === 'x01' ? 'lg:row-start-4' : 'lg:row-start-3'}`}>
           <div className="flex items-center gap-4">
               <TrophyIcon className="h-7 w-7 group-hover:scale-110 transition-transform" />
               <div className="flex flex-col items-start">
@@ -849,6 +855,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onStart
         {tab === 'practice' && (
             <div className="flex flex-col gap-3 text-center">
                 <TrophyIcon className="h-12 w-12 text-cyan-500 mx-auto mb-1" />
+                <button type="button" onClick={onOpenTrainingLab} className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 text-left hover:bg-cyan-500/20">
+                    <span className="text-sm font-black text-cyan-300 uppercase block">{lang === 'hu' ? 'Új: Edzéslabor' : 'New: Training lab'}</span>
+                    <span className="text-xs text-slate-300">{lang === 'hu' ? '8 új játékmód és helyi edzéstörténet' : '8 new drills and local training history'}</span>
+                </button>
                 <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setPracticeType('around')} className={`h-16 rounded-xl font-black uppercase text-[10px] border transition-all ${practiceType === 'around' ? 'bg-cyan-500 text-slate-900 border-cyan-400 shadow-lg' : 'bg-[#0b0d11] text-slate-400 border-slate-800 hover:bg-slate-800'}`}>
                         Around Clock<br/><span className="text-[8px] font-bold opacity-70">{txt.atcDesc}</span>
