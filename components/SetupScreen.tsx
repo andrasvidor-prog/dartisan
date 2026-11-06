@@ -16,6 +16,8 @@ import type { Dart, PlayerData } from './MatchScreen';
 import { db, auth, googleProvider, appleProvider } from '../firebase'; 
 import { doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, orderBy, limit, getDocs, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { questsFor, readQuestProgress, type QuestProgress } from '../lib/quests';
+import { TRAINING_MODES } from '../lib/training';
+import { bullOffWinner, isMatchPreset, readMatchPresets, writeMatchPresets, type BullOffHit, type MatchPreset } from '../lib/matchPresets';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
 type DisplayUser = User & { selectedAvatar?: string };
@@ -46,6 +48,7 @@ export type PlayerConfig = {
 };
 export type MatchConfig = { 
     gameMode: 'x01' | 'challenge' | 'practice' | 'career' | 'cricket';
+    cricketVariant?: 'standard' | 'cutthroat';
     practiceType?: 'around' | 'bobs27' | '121' | 'hunter' | 'math' | 'ai_drill';
     drillTarget?: number;
     players: PlayerConfig[]; 
@@ -118,6 +121,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
   const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>('x01');
   const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
   const [cricketGuestName, setCricketGuestName] = useState('Játékos 2');
+  const [cricketVariant, setCricketVariant] = useState<'standard' | 'cutthroat'>('standard');
   const [score, setScore] = useState(501);
   const [sets, setSets] = useState(1);
   const [legs, setLegs] = useState(3);
@@ -126,6 +130,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
     typeof window !== 'undefined' && localStorage.getItem('dartisan_checkout') === 'single' ? 'single' : 'double'
   );
   const [muteCaller, setMuteCaller] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [matchPresets, setMatchPresets] = useState<MatchPreset[]>(() => typeof window !== 'undefined' ? readMatchPresets(localStorage) : []);
+  const [bullOffOpen, setBullOffOpen] = useState(false);
+  const [bullOffHits, setBullOffHits] = useState<BullOffHit[]>([]);
   const [challengeCode, setChallengeCode] = useState('');
   const [practiceType, setPracticeType] = useState<'around' | 'bobs27' | '121' | 'hunter' | 'math'>('121');
   
@@ -273,6 +281,41 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
   const closeTutorial = () => { localStorage.setItem('dartisan_tutorial_done', 'true'); setShowTutorial(false); };
   const updatePlayer = (idx: number, updates: Partial<PlayerConfig>) => { const n = [...players]; n[idx] = { ...n[idx], ...updates }; setPlayers(n); };
   const txt = t[lang];
+
+  const saveMatchPreset = () => {
+      const preset: MatchPreset = {
+          id: crypto.randomUUID(), name: presetName.trim(), startingScore: score, setsToWin: sets,
+          legsToWin: legs, checkIn, checkout, muteCaller, players: players.map(player => ({ ...player, name: player.name.trim() })),
+      };
+      if (!isMatchPreset(preset)) return alert(lang === 'hu' ? 'Adj meg egy nevet, és ellenőrizd a játékosokat és szabályokat.' : 'Enter a name and check the players and rules.');
+      const next = [preset, ...matchPresets].slice(0, 10);
+      writeMatchPresets(localStorage, next);
+      setMatchPresets(next);
+      setPresetName('');
+  };
+
+  const loadMatchPreset = (preset: MatchPreset) => {
+      setScore(preset.startingScore);
+      setSets(preset.setsToWin);
+      setLegs(preset.legsToWin);
+      setCheckIn(preset.checkIn);
+      setCheckout(preset.checkout);
+      setMuteCaller(preset.muteCaller);
+      setPlayers(preset.players.map(player => ({ ...player })));
+  };
+
+  const deleteMatchPreset = (id: string) => {
+      const next = matchPresets.filter(preset => preset.id !== id);
+      writeMatchPresets(localStorage, next);
+      setMatchPresets(next);
+  };
+
+  const applyBullOff = () => {
+      const winner = bullOffWinner(bullOffHits);
+      if (winner === null) return;
+      setPlayers(current => [current[winner], ...current.filter((_, index) => index !== winner)]);
+      setBullOffOpen(false);
+  };
 
   const handleEmailLogin = async () => {
       if (!emailInput.trim() || !passwordInput) return alert(lang === 'hu' ? 'Add meg az e-mail címet és a jelszót.' : 'Enter your email and password.');
@@ -487,6 +530,20 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
        </div>
       )}
 
+      {bullOffOpen && (
+        <div className="fixed inset-0 z-[180] bg-[#0b0d11]/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="bull-off-title" className="w-full max-w-lg rounded-3xl border border-amber-500/40 bg-[#12141a] p-5 sm:p-7 shadow-2xl">
+            <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">BULL-OFF</p><h2 id="bull-off-title" className="text-2xl font-black text-white uppercase italic">{lang === 'hu' ? 'Ki kezd?' : 'Who starts?'}</h2></div><button type="button" onClick={() => setBullOffOpen(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="p-2 rounded-lg bg-slate-800 text-slate-300"><XMarkIcon className="h-5 w-5" /></button></div>
+            <p className="text-xs text-slate-400 mt-3 mb-5">{lang === 'hu' ? 'Minden játékos dob egy nyilat. A belső bull a legjobb, majd a külső bull, a tábla és a mellé dobás. Döntetlen esetén dobjatok újra.' : 'Each player throws one dart. Inner bull wins over outer bull, board hit and miss. Re-throw on a tie.'}</p>
+            <div className="space-y-3">
+              {players.map((player, index) => <div key={`${index}-${player.name}`} className="rounded-xl bg-[#0b0d11] border border-slate-800 p-3"><p className="text-sm font-black text-white mb-2">{player.name}</p><div className="grid grid-cols-4 gap-1.5">{([0, 1, 2, 3] as const).map(hit => <button type="button" key={hit} aria-pressed={bullOffHits[index] === hit} onClick={() => setBullOffHits(previous => previous.map((value, i) => i === index ? hit : value))} className={`min-h-10 rounded-lg text-[10px] sm:text-xs font-black border ${bullOffHits[index] === hit ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-900 text-slate-300 border-slate-700'}`}>{hit === 0 ? (lang === 'hu' ? 'Belső' : 'Inner') : hit === 1 ? (lang === 'hu' ? 'Külső' : 'Outer') : hit === 2 ? (lang === 'hu' ? 'Tábla' : 'Board') : (lang === 'hu' ? 'Mellé' : 'Miss')}</button>)}</div></div>)}
+            </div>
+            {bullOffHits.every(hit => hit !== null) && bullOffWinner(bullOffHits) === null && <p className="text-amber-300 text-xs font-bold mt-4">{lang === 'hu' ? 'Döntetlen az élen: dobjatok újra.' : 'Tie for first: throw again.'}</p>}
+            <div className="grid grid-cols-2 gap-2 mt-5"><button type="button" onClick={() => setBullOffHits(players.map(() => null))} className="h-12 rounded-xl bg-slate-800 text-white font-black text-xs uppercase">{lang === 'hu' ? 'Új dobás' : 'Re-throw'}</button><button type="button" disabled={bullOffWinner(bullOffHits) === null} onClick={applyBullOff} className="h-12 rounded-xl bg-amber-500 text-slate-950 font-black text-xs uppercase disabled:opacity-40">{lang === 'hu' ? 'Kezdő kiválasztása' : 'Set starter'}</button></div>
+          </div>
+        </div>
+      )}
+
       {showTutorial && (
           <div className="fixed inset-0 z-[250] bg-[#0b0d11]/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md">
               <div className="flex gap-2 mb-8">{[1,2,3].map(i => <div key={i} className={`h-2 w-12 rounded-full transition-all ${tutStep === i ? 'bg-emerald-500' : 'bg-slate-800'}`}></div>)}</div>
@@ -647,7 +704,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
       </header>
 
       <button type="button" onClick={onOpenTrainingLab} className="w-full min-h-20 mb-6 rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/20 via-[#182330] to-[#12141a] px-5 py-4 text-left flex items-center justify-between gap-4 hover:border-cyan-400 hover:bg-cyan-500/20 transition-all lg:col-span-2 lg:row-start-2">
-        <span className="flex items-center gap-4 min-w-0"><span className="h-12 w-12 shrink-0 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center"><SparklesIcon className="h-7 w-7" /></span><span className="min-w-0"><span className="text-[10px] font-black text-cyan-300 uppercase tracking-[0.2em] block">{lang === 'hu' ? 'Új • 8 játszható mód' : 'New • 8 playable drills'}</span><span className="text-lg sm:text-xl font-black text-white uppercase block">{lang === 'hu' ? 'Edzéslabor' : 'Training lab'}</span><span className="text-xs text-slate-300 block">{lang === 'hu' ? 'Duplák, T20, Bull, Shanghai, Count-Up és további edzések' : 'Doubles, T20, Bull, Shanghai, Count-Up and more'}</span></span></span>
+        <span className="flex items-center gap-4 min-w-0"><span className="h-12 w-12 shrink-0 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center"><SparklesIcon className="h-7 w-7" /></span><span className="min-w-0"><span className="text-[10px] font-black text-cyan-300 uppercase tracking-[0.2em] block">{lang === 'hu' ? `Új • ${TRAINING_MODES.length} játszható mód` : `New • ${TRAINING_MODES.length} playable drills`}</span><span className="text-lg sm:text-xl font-black text-white uppercase block">{lang === 'hu' ? 'Edzéslabor' : 'Training lab'}</span><span className="text-xs text-slate-300 block">{lang === 'hu' ? 'Duplák, T20, Bull, Shanghai, Count-Up és további edzések' : 'Doubles, T20, Bull, Shanghai, Count-Up and more'}</span></span></span>
         <ChevronRightIcon className="h-6 w-6 text-cyan-300 shrink-0" />
       </button>
 
@@ -780,6 +837,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
                     ))}
                     {tab === 'x01' && players.length < 4 && (<button onClick={() => setPlayers([...players, { name: `${txt.player} ${players.length + 1}`, isBot: false, difficulty: 5, color: COLORS[players.length % COLORS.length] }])} className="h-12 border border-dashed border-slate-700 rounded-xl text-slate-500 text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-slate-800/50 transition-all"><PlusIcon className="h-5 w-5" /> {txt.add}</button>)}
                 </div>
+                {tab === 'x01' && players.length >= 2 && <button type="button" onClick={() => { setBullOffHits(players.map(() => null)); setBullOffOpen(true); }} className="w-full mt-3 min-h-11 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-300 text-xs font-black uppercase hover:bg-amber-500/20">{lang === 'hu' ? 'Bull-off: döntsétek el, ki kezd' : 'Bull-off: decide who starts'}</button>}
             </div>
 
             <div className="flex flex-col gap-6">
@@ -822,6 +880,17 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
 
             {tab === 'x01' ? (
                 <>
+                    <div className="rounded-2xl border border-slate-700 bg-[#0b0d11] p-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">{lang === 'hu' ? 'Egyedi szabályok' : 'Custom rules'}</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            <label className="text-[10px] font-bold text-slate-400">{lang === 'hu' ? 'Kezdőpont' : 'Start score'}<input type="number" min="2" max="1001" step="1" value={score} onChange={event => setScore(Math.max(2, Math.min(1001, Math.trunc(Number(event.target.value) || 2))))} className="mt-1 w-full h-10 rounded-lg bg-slate-900 border border-slate-700 px-2 text-white font-mono font-black" /></label>
+                            <label className="text-[10px] font-bold text-slate-400">{lang === 'hu' ? 'Szettek' : 'Sets'}<input type="number" min="1" max="9" step="1" value={sets} onChange={event => setSets(Math.max(1, Math.min(9, Math.trunc(Number(event.target.value) || 1))))} className="mt-1 w-full h-10 rounded-lg bg-slate-900 border border-slate-700 px-2 text-white font-mono font-black" /></label>
+                            <label className="text-[10px] font-bold text-slate-400">{lang === 'hu' ? 'Legek' : 'Legs'}<input type="number" min="1" max="9" step="1" value={legs} onChange={event => setLegs(Math.max(1, Math.min(9, Math.trunc(Number(event.target.value) || 1))))} className="mt-1 w-full h-10 rounded-lg bg-slate-900 border border-slate-700 px-2 text-white font-mono font-black" /></label>
+                        </div>
+                        <div className="flex gap-2 mt-4"><input type="text" maxLength={30} placeholder={lang === 'hu' ? 'Szabálykészlet neve' : 'Preset name'} value={presetName} onChange={event => setPresetName(event.target.value)} className="min-w-0 flex-1 h-11 rounded-lg bg-slate-900 border border-slate-700 px-3 text-white text-xs font-bold" /><button type="button" onClick={saveMatchPreset} className="h-11 px-4 rounded-lg bg-cyan-500 text-slate-950 font-black text-xs uppercase">{lang === 'hu' ? 'Mentés' : 'Save'}</button></div>
+                        <p className="text-[10px] text-slate-500 mt-2">{lang === 'hu' ? 'A játékosok, pontok és beszálló/kiszálló szabályok ezen az eszközön mentődnek. Legfeljebb 10 készlet.' : 'Players, scores and in/out rules are saved on this device. Up to 10 presets.'}</p>
+                        {matchPresets.length > 0 && <div className="mt-4 space-y-2">{matchPresets.map(preset => <div key={preset.id} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2"><button type="button" onClick={() => loadMatchPreset(preset)} className="min-w-0 flex-1 text-left px-2 py-1"><span className="block text-white text-xs font-black truncate">{preset.name}</span><span className="block text-[10px] text-slate-500">{preset.startingScore} • {preset.setsToWin}S / {preset.legsToWin}L • {preset.checkIn}/{preset.checkout}</span></button><button type="button" aria-label={`${lang === 'hu' ? 'Törlés' : 'Delete'}: ${preset.name}`} onClick={() => deleteMatchPreset(preset.id)} className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/10"><XMarkIcon className="h-4 w-4" /></button></div>)}</div>}
+                    </div>
                     <button onClick={() => setMuteCaller(!muteCaller)} className={`w-full h-12 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-2 ${muteCaller ? 'bg-rose-500/10 border border-rose-500/30 text-rose-500' : 'bg-[#0b0d11] border border-slate-800 text-slate-400 hover:bg-slate-800'}`}>
                         {muteCaller ? <SpeakerXMarkIcon className="h-5 w-5"/> : <SpeakerWaveIcon className="h-5 w-5"/>} {txt.mute}
                     </button>
@@ -857,7 +926,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
                 <TrophyIcon className="h-12 w-12 text-cyan-500 mx-auto mb-1" />
                 <button type="button" onClick={onOpenTrainingLab} className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 text-left hover:bg-cyan-500/20">
                     <span className="text-sm font-black text-cyan-300 uppercase block">{lang === 'hu' ? 'Új: Edzéslabor' : 'New: Training lab'}</span>
-                    <span className="text-xs text-slate-300">{lang === 'hu' ? '8 új játékmód és helyi edzéstörténet' : '8 new drills and local training history'}</span>
+                    <span className="text-xs text-slate-300">{lang === 'hu' ? `${TRAINING_MODES.length} játszható mód és helyi edzéstörténet` : `${TRAINING_MODES.length} playable drills and local training history`}</span>
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setPracticeType('around')} className={`h-16 rounded-xl font-black uppercase text-[10px] border transition-all ${practiceType === 'around' ? 'bg-cyan-500 text-slate-900 border-cyan-400 shadow-lg' : 'bg-[#0b0d11] text-slate-400 border-slate-800 hover:bg-slate-800'}`}>
@@ -951,14 +1020,15 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
 
         {tab === 'cricket' && (
             <div className="flex flex-col gap-4 text-center">
+                <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setCricketVariant('standard')} aria-pressed={cricketVariant === 'standard'} className={`h-12 rounded-xl border font-black text-xs uppercase ${cricketVariant === 'standard' ? 'bg-emerald-500 text-slate-950 border-emerald-400' : 'bg-[#0b0d11] text-slate-400 border-slate-800'}`}>Cricket</button><button type="button" onClick={() => setCricketVariant('cutthroat')} aria-pressed={cricketVariant === 'cutthroat'} className={`h-12 rounded-xl border font-black text-xs uppercase ${cricketVariant === 'cutthroat' ? 'bg-rose-500 text-white border-rose-400' : 'bg-[#0b0d11] text-slate-400 border-slate-800'}`}>Cut-throat</button></div>
                 <div className="bg-[#0b0d11] border border-emerald-500/30 p-6 rounded-3xl text-left shadow-[0_0_20px_rgba(16,185,129,0.05)]">
-                    <h3 className="text-2xl font-black text-white italic uppercase mb-2">Cricket</h3>
-                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-4">A legelterjedtebb pub darts játékmód</p>
+                    <h3 className="text-2xl font-black text-white italic uppercase mb-2">{cricketVariant === 'cutthroat' ? 'Cut-throat Cricket' : 'Cricket'}</h3>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-4">{cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'Az ellenfelek gyűjtik a pontot; a legalacsonyabb nyer.' : 'Opponents receive points; the lowest score wins.') : (lang === 'hu' ? 'A legelterjedtebb pub darts játékmód' : 'The classic pub darts game')}</p>
                     <ul className="text-xs text-slate-300 font-bold flex flex-col gap-2">
                         <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Célpontok: 15-20 és Bull</li>
                         <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> 3 találat = szektorzárás</li>
-                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Zárt szektorra dobva pontot kapsz (ha az ellenfél még nem zárta)</li>
-                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Győz, aki elsőként zárja az összes szektort ÉS vezet pontban</li>
+                            <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'A zárt szektor többletpontját a még nyitott ellenfelek kapják.' : 'Opponents who have not closed the target receive overflow points.') : (lang === 'hu' ? 'Zárt szektorra dobva pontot kapsz (ha az ellenfél még nem zárta).' : 'Score on a closed target until your opponent closes it.')}</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'Győz, aki minden szektort lezárt, és a legkevesebb pontja van.' : 'Close all targets and have the lowest score to win.') : (lang === 'hu' ? 'Győz, aki minden szektort lezárt, és vezet pontban.' : 'Close all targets and have the highest score to win.')}</li>
                     </ul>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
@@ -972,7 +1042,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
                     </label>
                 </div>
                 <button
-                    onClick={() => onStart({ gameMode: 'cricket', players: [
+                    onClick={() => onStart({ gameMode: 'cricket', cricketVariant, players: [
                         { ...players[0], name: players[0].name.trim() || 'Player 1', isBot: false },
                         players[1] ? { ...players[1], name: players[1].name.trim() || 'Játékos 2', isBot: false } : { name: cricketGuestName.trim() || 'Játékos 2', color: 'rose', isBot: false, difficulty: 5 }
                     ], startingScore: 0, setsToWin: 1, legsToWin: 1, checkIn: 'single', checkout: 'single', muteCaller })}

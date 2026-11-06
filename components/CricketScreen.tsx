@@ -1,11 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { XMarkIcon, TrophyIcon, ArrowPathIcon, BackspaceIcon } from '@heroicons/react/24/outline';
 import { TutorialOverlay, shouldShowTutorial } from './TutorialOverlay';
-
-// Cricket célpontok (15-20 + Bull)
-const CRICKET_TARGETS = [20, 19, 18, 17, 16, 15, 25];
+import { applyCricketDart, cricketWinner, CRICKET_TARGETS, type CricketVariant } from '../lib/cricket';
 
 type Mark = 0 | 1 | 2 | 3; // 0=nyitott, 1=1 jel, 2=2 jel, 3=zárva
 
@@ -18,7 +16,7 @@ interface PlayerState {
 }
 
 interface CricketScreenProps {
-    config: { players: { name: string; color: string }[] };
+    config: { players: { name: string; color: string }[]; cricketVariant?: CricketVariant };
     onBack: () => void;
 }
 
@@ -30,21 +28,8 @@ const COLOR_MAP: Record<string, string> = {
     purple:  'text-[#b655ff]   bg-[#b655ff]/20   border-[#b655ff]/50',
 };
 
-const MarkDisplay = ({ marks }: { marks: Mark }) => {
-    return (
-        <div className="flex items-center justify-center gap-0.5 h-6">
-            {marks === 0 && <span className="text-slate-700 text-xs font-black">—</span>}
-            {marks >= 1 && <div className="w-0 h-5 border-r-2 border-slate-400 rotate-[25deg]" />}
-            {marks >= 2 && <div className="w-0 h-5 border-r-2 border-slate-400 -rotate-[25deg]" />}
-            {marks >= 3 && <div className="w-6 h-0 border-t-2 border-emerald-400 absolute" />}
-            {marks === 3 && (
-                <span className="text-emerald-400 text-sm font-black">✓</span>
-            )}
-        </div>
-    );
-};
-
 export function CricketScreen({ config, onBack }: CricketScreenProps) {
+    const variant: CricketVariant = config.cricketVariant === 'cutthroat' ? 'cutthroat' : 'standard';
     const initPlayers = (): PlayerState[] =>
         config.players.map((p, i) => ({
             id: i,
@@ -60,29 +45,24 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
     const [winner, setWinner]               = useState<PlayerState | null>(null);
     const [activeMult, setActiveMult]       = useState<1 | 2 | 3>(1);
     const [showTutorial, setShowTutorial]   = useState(() => shouldShowTutorial('cricket'));
+    const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const winnerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearTimers = () => {
+        if (turnTimer.current) clearTimeout(turnTimer.current);
+        if (winnerTimer.current) clearTimeout(winnerTimer.current);
+        turnTimer.current = null;
+        winnerTimer.current = null;
+    };
+
+    useEffect(() => () => {
+        if (turnTimer.current) clearTimeout(turnTimer.current);
+        if (winnerTimer.current) clearTimeout(winnerTimer.current);
+    }, []);
 
     // Closed by all players?
     const isClosedByAll = useCallback((target: number, ps: PlayerState[]) =>
         ps.every(p => p.marks[target] >= 3), []);
-
-    // Can player score on this target?
-    const canScore = useCallback((playerId: number, target: number, ps: PlayerState[]) => {
-        // Player closed it, but at least one opponent hasn't
-        const pl = ps[playerId];
-        return pl.marks[target] >= 3 && ps.some((p, i) => i !== playerId && p.marks[target] < 3);
-    }, []);
-
-    const checkWin = (ps: PlayerState[]): PlayerState | null => {
-        for (const p of ps) {
-            const allClosed = CRICKET_TARGETS.every(t => p.marks[t] >= 3);
-            if (!allClosed) continue;
-            // Check: all opponents have <= this player's score OR all targets closed by everyone
-            const allTargetsClosedByAll = CRICKET_TARGETS.every(t => ps.every(pl => pl.marks[t] >= 3));
-            const hasHighestOrEqualScore = ps.every(other => other.id === p.id || p.score >= other.score);
-            if (allTargetsClosedByAll || hasHighestOrEqualScore) return p;
-        }
-        return null;
-    };
 
     const recordHit = (target: number, mult: number) => {
         if (winner) return;
@@ -96,43 +76,13 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
     };
 
     const applyDarts = (darts: { target: number; mult: number }[]) => {
-        setPlayers(prev => {
-            const ps = prev.map(p => ({
-                ...p,
-                marks: { ...p.marks },
-            }));
-            const ap = ps[activePlayer];
+        let nextPlayers = players;
+        for (const { target, mult } of darts) nextPlayers = applyCricketDart(nextPlayers, activePlayer, target, mult, variant);
+        setPlayers(nextPlayers);
+        const nextWinner = cricketWinner(nextPlayers, variant);
+        if (nextWinner) winnerTimer.current = setTimeout(() => setWinner(nextWinner), 300);
 
-            for (const { target, mult } of darts) {
-                if (!CRICKET_TARGETS.includes(target)) continue;
-                const currentMarks = ap.marks[target];
-                const remaining = Math.min(3 - currentMarks, mult);
-                const overflow = mult - remaining;
-
-                // Add marks up to 3
-                ap.marks[target] = Math.min(3, currentMarks + mult) as Mark;
-
-                // Score for overflow hits if we can score on this target
-                if (overflow > 0 && canScore(ap.id, target, ps)) {
-                    const tVal = target === 25 ? 25 : target;
-                    ap.score += tVal * overflow;
-                } else if (currentMarks >= 3 && canScore(ap.id, target, ps)) {
-                    // All hits score
-                    const tVal = target === 25 ? 25 : target;
-                    ap.score += tVal * mult;
-                }
-            }
-
-            const w = checkWin(ps);
-            if (w) {
-                const winner = ps.find(p => p.id === w.id)!;
-                setTimeout(() => setWinner(winner), 300);
-            }
-
-            return ps;
-        });
-
-        setTimeout(() => {
+        turnTimer.current = setTimeout(() => {
             setPendingDarts([]);
             setActiveMult(1);
             setActivePlayer(prev => (prev + 1) % config.players.length);
@@ -144,6 +94,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
     };
 
     const handleReset = () => {
+        clearTimers();
         setPlayers(initPlayers());
         setActivePlayer(0);
         setPendingDarts([]);
@@ -165,7 +116,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                 <button onClick={onBack} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                     <XMarkIcon className="h-6 w-6" />
                 </button>
-                <h1 className="text-xl font-black text-white uppercase italic tracking-wider">Cricket</h1>
+                <h1 className="text-xl font-black text-white uppercase italic tracking-wider">{variant === 'cutthroat' ? 'Cut-throat Cricket' : 'Cricket'}</h1>
                 <div className="flex items-center gap-2">
                     <button onClick={() => setShowTutorial(true)} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-amber-400 transition-colors text-[11px] font-black">?</button>
                     <button onClick={handleReset} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
