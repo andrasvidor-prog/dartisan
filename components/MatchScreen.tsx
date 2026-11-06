@@ -658,8 +658,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       }
   };
 
+  const hasMatchProgress = currentDarts.length > 0 || players.some(player => player.totalDarts > 0 || player.legsWon > 0 || player.setsWon > 0);
+
   useEffect(() => {
-    if (isMatchWinner || config.gameMode === 'practice') localStorage.removeItem('dartisan_save');
+    if (isMatchWinner || config.gameMode === 'practice' || (!isAsync && !hasMatchProgress)) localStorage.removeItem('dartisan_save');
     else localStorage.setItem('dartisan_save', JSON.stringify({
             players, activePlayer, isLegWinner, isSetWinner, isMatchWinner,
             config: { ...config, resumeState: undefined }, currentDarts,
@@ -669,7 +671,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             onlineLeg: isAsync ? (fbSyncData?.state?.currentLeg ?? config.resumeState?.onlineLeg ?? 1) : undefined,
             resolvedLegNumber: isAsync ? resolvedLegRef.current : undefined,
         }));
-  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, inputMode, checkoutStrategy, asyncState, fbSyncData]);
+  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData]);
 
   useEffect(() => {
       if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
@@ -1359,7 +1361,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   };
   
   const handleExit = () => { 
-      if (isMatchWinner || config.gameMode === 'practice') localStorage.removeItem('dartisan_save');
+      if (isMatchWinner || config.gameMode === 'practice' || (!isAsync && !hasMatchProgress)) localStorage.removeItem('dartisan_save');
       const user = auth.currentUser;
       if (user && !user.isAnonymous && Object.keys(fullHeatmapData).length > 0) {
           const setupId = config.dartSetupId || 'default';

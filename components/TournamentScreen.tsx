@@ -93,7 +93,7 @@ export function TournamentScreen({ onBack, onStartTournament }: TournamentScreen
     const byesNeeded = nextPowerOf2 - players.length;
 
     return (
-        <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 overflow-y-auto custom-scrollbar flex flex-col h-[100dvh]">
+        <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 overflow-y-auto overscroll-contain custom-scrollbar flex flex-col h-[100dvh]">
             
             {/* FEJLÉC */}
             <div className="flex items-center justify-between p-4 sm:p-8 shrink-0 relative z-10">
@@ -134,7 +134,7 @@ export function TournamentScreen({ onBack, onStartTournament }: TournamentScreen
                         
                         <div className="bg-[#12141a] p-6 rounded-3xl border border-slate-800 shadow-xl">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Bajnokság Neve</label>
-                            <input type="text" value={tourneyName} onChange={(e) => setTourneyName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white text-xl font-black italic focus:border-[#b655ff] outline-none transition-colors" placeholder="Pl: Péntek Esti Kupa" />
+                            <input type="text" maxLength={48} value={tourneyName} onChange={(e) => setTourneyName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white text-xl font-black italic focus:border-[#b655ff] outline-none transition-colors" placeholder="Pl: Péntek Esti Kupa" />
                         </div>
 
                         <div className="bg-[#12141a] p-6 rounded-3xl border border-slate-800 shadow-xl">

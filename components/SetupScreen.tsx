@@ -515,7 +515,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
           </div>
           <div className="flex gap-2">
               <button onClick={handleResumeMatch} className="bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95">{txt.resumeMatch}</button>
-              <button onClick={() => { localStorage.removeItem('dartisan_save'); setSavedMatch(null); }} className="bg-emerald-600 text-emerald-900 px-3 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95"><XMarkIcon className="h-5 w-5"/></button>
+              <button onClick={() => { localStorage.removeItem('dartisan_save'); setSavedMatch(null); }} aria-label={lang === 'hu' ? 'Félbehagyott meccs törlése' : 'Delete saved match'} className="bg-emerald-600 text-emerald-900 px-3 py-2 rounded-xl font-black uppercase text-xs shadow-xl active:scale-95"><XMarkIcon className="h-5 w-5"/></button>
           </div>
        </div>
       )}
@@ -562,10 +562,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
       )}
 
       {showAuth && (
-          <div className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md">
-              <button onClick={() => setShowAuth(false)} className="absolute top-6 right-6 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-8 w-8" /></button>
-              <KeyIcon className="h-16 w-16 text-emerald-400 mb-6" />
-              <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2">{currentUser ? 'Fiókod' : txt.login}</h2>
+          <div role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-20 pb-6 sm:py-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
+              <button onClick={() => setShowAuth(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-7 w-7" /></button>
+              <KeyIcon className="h-16 w-16 shrink-0 text-emerald-400 mb-6" />
+              <h2 id="auth-title" className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 shrink-0">{currentUser ? 'Fiókod' : txt.login}</h2>
               <p className="text-slate-400 text-sm font-bold mb-8 max-w-xs">{currentUser ? 'Sikeresen bejelentkeztél!' : txt.loginDesc}</p>
               
               <div className="w-full max-w-sm flex flex-col gap-3">
@@ -616,10 +616,10 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
 
       {/* --- KÜLDETÉSEK PANEL - FRISSÍTETT DIZÁJN --- */}
       {showQuests && (
-          <div className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-16 pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
-              <button onClick={() => setShowQuests(false)} className="absolute top-6 right-6 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-8 w-8" /></button>
+          <div role="dialog" aria-modal="true" aria-labelledby="quests-title" className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-16 pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
+              <button onClick={() => setShowQuests(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white"><XMarkIcon className="h-7 w-7" /></button>
               <ListBulletIcon className="h-12 w-12 text-cyan-400 mb-2" />
-              <h2 className="text-3xl font-black text-white uppercase italic mb-2 tracking-tighter">{txt.quests}</h2>
+              <h2 id="quests-title" className="text-3xl font-black text-white uppercase italic mb-2 tracking-tighter">{txt.quests}</h2>
               <p className="text-xs text-slate-400 text-center mb-8 max-w-sm">{lang === 'hu' ? 'A célok ezen a készüléken követhetők. A teljesítés jelenleg nem ad XP-t.' : 'Progress is tracked on this device. Completing a goal does not award XP yet.'}</p>
               
               <div className="w-full max-w-sm flex flex-col gap-8">
@@ -676,22 +676,22 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
 
       {/* FEJLÉC GOMBOK ÉS STATISZTIKÁK */}
       <div className="absolute top-4 left-4 right-4 flex justify-between items-center bg-[#12141a] p-2 rounded-2xl border border-slate-800 shadow-lg z-10">
-        <div className="flex items-center gap-3">
-            <button onClick={() => currentUser ? onOpenProfile() : setShowAuth(true)} className={`p-1.5 rounded-xl border transition-all ${currentUser ? 'border-emerald-500/50 bg-slate-800 hover:border-emerald-400' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+        <div className="flex items-center gap-3 min-w-0">
+            <button aria-label={lang === 'hu' ? 'Profil vagy bejelentkezés' : 'Profile or sign in'} onClick={() => currentUser ? onOpenProfile() : setShowAuth(true)} className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border transition-colors ${currentUser ? 'border-emerald-500/50 bg-slate-800 hover:border-emerald-400' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
                 <img src={getAvatar(currentUser)} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=Fallback&backgroundColor=0b0d11' }} className="h-6 w-6 rounded-full bg-slate-800" alt="avatar" />
             </button>
-            <div className="flex flex-col">
+            <div className="hidden min-[375px]:flex flex-col">
                 <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">{txt.lvl} {userLevel}</span>
                 <div className="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-0.5"><div className="h-full bg-emerald-500 w-[45%]"></div></div>
             </div>
         </div>
-        <div className="flex items-center gap-2">
-            <button onClick={() => { setQuestProgress(readQuestProgress(localStorage)); setShowQuests(true); }} className="p-1.5 bg-cyan-500/10 rounded-xl text-cyan-400 border border-cyan-500/20"><ListBulletIcon className="h-5 w-5" /></button>
-            <div className="flex items-center gap-1 text-amber-500 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20 relative">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button aria-label={lang === 'hu' ? 'Küldetések' : 'Quests'} onClick={() => { setQuestProgress(readQuestProgress(localStorage)); setShowQuests(true); }} className="h-10 w-10 flex items-center justify-center bg-cyan-500/10 rounded-xl text-cyan-400 border border-cyan-500/20"><ListBulletIcon className="h-5 w-5" /></button>
+            <div className="h-10 flex items-center gap-1 text-amber-500 bg-amber-500/10 px-2 rounded-lg border border-amber-500/20 relative">
                 <FireIcon className="h-4 w-4 fill-amber-500" /> <span className="text-xs font-black">{userStreak}</span>
             </div>
-            <button onClick={onOpenSettings} className="p-1.5 bg-slate-800 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition-all"><Cog6ToothIcon className="h-5 w-5" /></button>
-            <button onClick={onOpenClub} className="p-1.5 bg-slate-800 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition-all"><ShieldCheckIcon className="h-5 w-5" /></button>
+            <button aria-label={lang === 'hu' ? 'Beállítások' : 'Settings'} onClick={onOpenSettings} className="h-10 w-10 flex items-center justify-center bg-slate-800 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"><Cog6ToothIcon className="h-5 w-5" /></button>
+            <button aria-label={lang === 'hu' ? 'Klub' : 'Club'} onClick={onOpenClub} className="h-10 w-10 flex items-center justify-center bg-slate-800 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"><ShieldCheckIcon className="h-5 w-5" /></button>
         </div>
       </div>
 
@@ -709,7 +709,6 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
       </button>
 
       {/* --- QUICK START GOMB --- */}
-      {tab === 'x01' && (
         <button 
             onClick={() => onStart({ 
                 gameMode: 'x01', 
@@ -728,7 +727,6 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
         >
             {txt.quickMatch}
         </button>
-      )}
 
       <div className="w-full flex flex-col gap-2 mb-6 lg:col-start-2 lg:row-start-3 lg:row-span-2">
           <div className="flex bg-[#12141a] rounded-xl p-1 border border-slate-800 shadow-lg">
@@ -749,7 +747,7 @@ export function SetupScreen({ lang, onStart, onOpenProfile, onOpenCoach, onOpenT
           </div>
       </div>
 
-      <button onClick={onStartTournament} className={`w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0 lg:col-start-1 ${tab === 'x01' ? 'lg:row-start-4' : 'lg:row-start-3'}`}>
+      <button onClick={onStartTournament} className="w-full mb-6 h-16 rounded-2xl bg-[#b655ff]/10 border border-[#b655ff]/30 text-[#b655ff] flex items-center justify-between px-6 hover:bg-[#b655ff]/20 hover:shadow-[0_0_20px_rgba(182,85,255,0.2)] transition-all group active:scale-95 shrink-0 lg:col-start-1 lg:row-start-4">
           <div className="flex items-center gap-4">
               <TrophyIcon className="h-7 w-7 group-hover:scale-110 transition-transform" />
               <div className="flex flex-col items-start">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { SetupScreen } from '../components/SetupScreen';
 import type { MatchConfig } from '../components/SetupScreen';
 import { MatchScreen } from '../components/MatchScreen';
@@ -31,6 +31,7 @@ export default function Home() {
   const [lang, setLang] = useState<Language>(() => typeof window !== 'undefined' && localStorage.getItem('dartisan_lang') === 'en' ? 'en' : 'hu');
   const [matchConfig, setMatchConfig] = useState<MatchConfig | null>(null);
   const [matchInstance, setMatchInstance] = useState(0);
+  const [matchReturnScreen, setMatchReturnScreen] = useState<'setup' | 'coach' | 'custom_tournament'>('setup');
   const [matchResult, setMatchResult] = useState<{ winnerId: string; score1: number; score2: number; tournamentMatchId?: string; isGroupMatch?: boolean } | null>(null);
   const isMounted = useSyncExternalStore(subscribeMounted, () => true, () => false);
   
@@ -129,14 +130,14 @@ export default function Home() {
 
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
       if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
-  }, [currentScreen, showTournament, matchInstance]);
+  }, [currentScreen, matchInstance]);
 
-  if (!isMounted) return null;
+  if (!isMounted) return <main className="h-[100dvh] w-full bg-[#0b0d11] flex items-center justify-center"><span role="status" className="text-xs font-black uppercase tracking-[0.35em] text-emerald-400">DARTISAN</span></main>;
 
   return (
-    <main ref={scrollContainerRef} className="relative h-[100dvh] w-full bg-[#0b0d11] text-slate-200 overflow-y-auto overflow-x-hidden scroll-smooth custom-scrollbar">
+    <main ref={scrollContainerRef} className={`relative h-[100dvh] w-full bg-[#0b0d11] text-slate-200 overflow-x-hidden custom-scrollbar ${showTournament ? 'overflow-y-hidden' : 'overflow-y-auto'}`}>
       <style dangerouslySetInnerHTML={{__html: `
         ::-webkit-scrollbar { display: none !important; }
         * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
@@ -157,12 +158,14 @@ export default function Home() {
       {currentScreen === 'training_lab' && <TrainingLab lang={lang} onBack={() => setCurrentScreen('setup')} />}
       
       {currentScreen === 'setup' && (
+        <div inert={showTournament} aria-hidden={showTournament} className="w-full">
         <SetupScreen 
           lang={lang} 
           userLevel={userLevel}
           userStreak={userStreak}
           onStart={(config) => {
             setMatchConfig(config);
+            setMatchReturnScreen('setup');
             setMatchInstance(value => value + 1);
             if (config.gameMode === 'cricket') {
                 setCurrentScreen('cricket');
@@ -178,6 +181,7 @@ export default function Home() {
           onOpenSettings={() => setCurrentScreen('settings')}
           onOpenClub={() => setCurrentScreen('club')} 
         />
+        </div>
       )}
 
       {showTournament && (
@@ -194,6 +198,7 @@ export default function Home() {
       {currentScreen === 'cricket' && matchConfig && (
         <CricketScreen
           config={matchConfig}
+          lang={lang}
           onBack={() => setCurrentScreen('setup')}
         />
       )}
@@ -212,11 +217,11 @@ export default function Home() {
               if (matchConfig.isCustomTournamentMatch) {
                   setCurrentScreen('custom_tournament');
               } else {
-                  setCurrentScreen('setup'); 
+                  setCurrentScreen(matchReturnScreen);
               }
           }}
           onMatchComplete={(playersData) => {
-              if (playersData.length < 2) { setCurrentScreen('setup'); return; }
+              if (playersData.length < 2) { setCurrentScreen(matchReturnScreen); return; }
               const winner = playersData.reduce((prev, current) => {
                   const prevScore = prev.setsWon * 1000 + prev.legsWon;
                   const currScore = current.setsWon * 1000 + current.legsWon;
@@ -234,7 +239,7 @@ export default function Home() {
                   localStorage.setItem('dartisan_career_stage', String(nextCareerStage(previous, matchConfig.careerStage || 0, winner.id)));
               }
               if (matchConfig.isCustomTournamentMatch) setCurrentScreen('custom_tournament');
-              else setCurrentScreen('setup'); 
+              else setCurrentScreen(matchReturnScreen);
           }}
         />
       )}
@@ -246,6 +251,7 @@ export default function Home() {
           onBack={() => setCurrentScreen('setup')}
           onPlayMatch={(generatedMatchConfig) => {
               setMatchConfig({...generatedMatchConfig, isCustomTournamentMatch: true});
+              setMatchReturnScreen('custom_tournament');
               setMatchResult(null);
               setCurrentScreen('match');
           }}
@@ -257,6 +263,7 @@ export default function Home() {
           onBack={() => setCurrentScreen('setup')}
           onStartDrill={(drillConfig) => {
               setMatchConfig(drillConfig);
+              setMatchReturnScreen('coach');
               setCurrentScreen('match');
           }}
         />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeftIcon, SparklesIcon, CalendarDaysIcon, ChartBarIcon, CheckCircleIcon, PlayIcon, ArrowPathIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PlayIcon, ArrowPathIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { MatchConfig } from './SetupScreen';
 import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -49,6 +49,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
 
     useEffect(() => {
         const fetchCoachData = async () => {
+          try {
             const user = auth.currentUser;
             if (user && !user.isAnonymous) {
                 const docSnap = await getDoc(doc(db, 'users', user.uid, 'coach', 'plan'));
@@ -58,8 +59,21 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                     setCompletedDays(data.completedDays || []);
                     setCustomTasks(data.customTasks || []);
                 }
+            } else {
+                try {
+                    const saved = JSON.parse(localStorage.getItem('dartisan_coach_plan') || 'null');
+                    if (saved && ['scoring', 'checkout', 'first9'].includes(saved.goal)) {
+                        setGoal(saved.goal);
+                        setCompletedDays(Array.isArray(saved.completedDays) ? saved.completedDays.filter((day: unknown) => Number.isInteger(day) && Number(day) >= 0) : []);
+                        setCustomTasks(Array.isArray(saved.customTasks) ? saved.customTasks.filter((task: TrainingTask) => task && typeof task.title === 'string' && task.mode === 'custom') : []);
+                    }
+                } catch { /* An invalid local plan starts fresh. */ }
             }
+          } catch (error) {
+            console.error('Coach plan load failed:', error);
+          } finally {
             setLoading(false);
+          }
         };
         fetchCoachData();
     }, []);
@@ -68,6 +82,8 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
         const user = auth.currentUser;
         if (user && !user.isAnonymous) {
             await setDoc(doc(db, 'users', user.uid, 'coach', 'plan'), { goal: newGoal, completedDays: newCompleted, customTasks: newCustom }, { merge: true });
+        } else {
+            localStorage.setItem('dartisan_coach_plan', JSON.stringify({ goal: newGoal, completedDays: newCompleted, customTasks: newCustom }));
         }
         setGoal(newGoal);
         setCompletedDays(newCompleted);
@@ -88,9 +104,8 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
         setNewCustomTask('');
     };
 
-    const handleStartTask = (task: TrainingTask, idx: number) => {
+    const handleStartTask = (task: TrainingTask) => {
         if (task.mode === 'rest' || task.mode === 'custom') {
-            toggleDay(idx);
             return;
         }
         const config: MatchConfig = {
@@ -103,39 +118,45 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
         };
         if (task.mode === 'x01') config.players.push({ name: 'AI Edzőpartner', isBot: true, difficulty: 6, color: 'purple' });
         
-        // Ha elindítja, pipáljuk ki előre (motiváció)
-        if (!completedDays.includes(idx)) toggleDay(idx);
         onStartDrill(config);
     };
 
-    if (loading) return <div className="h-full w-full bg-[#0b0d11] flex items-center justify-center"><ArrowPathIcon className="h-8 w-8 text-cyan-500 animate-spin" /></div>;
+    if (loading) return <div className="min-h-full w-full bg-[#0b0d11] flex items-center justify-center"><ArrowPathIcon className="h-8 w-8 text-cyan-500 animate-spin" /></div>;
 
     const currentPlan = goal ? TRAINING_PLANS[goal] : [];
     const fullPlan = [...currentPlan, ...customTasks];
     const progressPct = fullPlan.length > 0 ? Math.round((completedDays.length / fullPlan.length) * 100) : 0;
 
     return (
-        <div className="h-full w-full bg-[#0b0d11] text-slate-200 flex flex-col pt-8 pb-12 px-4 relative overflow-y-auto custom-scrollbar">
-            <header className="flex items-center justify-between mb-8 shrink-0">
-                <button onClick={onBack} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><ArrowLeftIcon className="h-5 w-5" /></button>
-                <div className="text-center">
-                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em] flex items-center gap-1 justify-center"><SparklesIcon className="h-3 w-3" /> AI Edző</span>
-                    <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Heti Naptár</h1>
+        <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 py-6 sm:py-9 pb-16">
+            <header className="max-w-6xl mx-auto flex items-center gap-4 mb-7 sm:mb-9">
+                <button onClick={onBack} aria-label="Vissza" className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
+                <div className="min-w-0">
+                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-1"><SparklesIcon className="h-3 w-3" /> DARTISAN / AI EDZŐ</span>
+                    <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white uppercase italic tracking-tight leading-tight">Heti naptár</h1>
                 </div>
-                <div className="w-9"></div>
             </header>
 
             {!goal ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto w-full">
-                    <p className="text-slate-400 text-sm font-bold text-center mb-4 md:col-span-3">Válaszd ki a heti fókuszodat!</p>
-                    {['scoring', 'checkout', 'first9'].map((g) => (
-                        <button key={g} onClick={() => saveCoachData(g as GoalType, [], [])} className="p-6 rounded-3xl bg-[#12141a] border border-cyan-500/30 text-left hover:border-cyan-400 transition-all shadow-lg">
-                            <h3 className="text-xl font-black text-white uppercase">{g === 'scoring' ? 'Tömegdobás' : g === 'checkout' ? 'Kiszállók' : 'Első 9 Nyíl'}</h3>
+                <div className="max-w-6xl mx-auto w-full">
+                    <div className="rounded-3xl border border-cyan-500/25 bg-gradient-to-br from-cyan-500/15 via-[#151a23] to-[#101216] p-5 sm:p-7 mb-6">
+                        <p className="text-cyan-300 text-xs font-black uppercase tracking-widest mb-2">7 nap · saját tempóban</p>
+                        <p className="text-white text-lg sm:text-xl font-bold max-w-2xl">Válassz egy fókuszt a heti edzéstervedhez.</p>
+                        <p className="text-slate-400 text-xs mt-3">A feladatokat az edzés után jelölheted késznek.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+                    {(['scoring', 'checkout', 'first9'] as const).map((g, index) => (
+                        <button key={g} onClick={() => saveCoachData(g, [], [])} className="min-h-44 p-5 sm:p-6 rounded-2xl bg-[#12141a] border border-cyan-500/30 text-left hover:border-cyan-400 hover:bg-[#17202a] transition-colors flex flex-col">
+                            <span className="text-xs font-black text-cyan-400 tracking-widest">0{index + 1} / 03</span>
+                            <h3 className="text-xl font-black text-white uppercase mt-3">{g === 'scoring' ? 'Tömegdobás' : g === 'checkout' ? 'Kiszállók' : 'Első 9 nyíl'}</h3>
+                            <p className="text-xs text-slate-300 mt-2 leading-relaxed flex-1">{g === 'scoring' ? 'Ponttermelés, célzás és 501 az AI ellen.' : g === 'checkout' ? 'Duplák, 121-es kihívás és nyomáshelyzetek.' : 'Erősebb kezdés és pontosabb első három kör.'}</p>
+                            <span className="text-xs uppercase font-black text-cyan-300 mt-4 flex items-center gap-2"><PlayIcon className="h-4 w-4" /> Terv indítása</span>
                         </button>
                     ))}
+                    </div>
                 </div>
             ) : (
-                <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full">
+                <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
                     {/* Progress Bar (3. Pont) */}
                     <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl shadow-lg">
                         <div className="flex items-center justify-between mb-2">
@@ -154,7 +175,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                             const isDone = completedDays.includes(idx);
                             return (
                                 <div key={idx} className={`relative z-10 flex gap-4 p-4 rounded-2xl border transition-all ${isDone ? 'bg-emerald-500/10 border-emerald-500/30 opacity-70' : 'bg-[#12141a] border-slate-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]'}`}>
-                                    <button onClick={() => toggleDay(idx)} className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500 text-slate-900' : 'bg-slate-900 border-slate-600 text-slate-600 hover:border-cyan-500'}`}>
+                                    <button onClick={() => toggleDay(idx)} aria-label={`${task.title}: ${isDone ? 'kész jelölés visszavonása' : 'késznek jelölés'}`} className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500 text-slate-900' : 'bg-slate-900 border-slate-600 text-slate-600 hover:border-cyan-500'}`}>
                                         {isDone ? <CheckCircleIcon className="h-5 w-5" /> : null}
                                     </button>
                                     <div className="flex-1">
@@ -162,7 +183,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                                         <p className="text-xs text-slate-400 font-bold mt-1">{task.desc}</p>
                                         
                                         {!isDone && task.mode !== 'rest' && task.mode !== 'custom' && (
-                                            <button onClick={() => handleStartTask(task, idx)} className="mt-3 w-full h-10 bg-cyan-500 text-slate-900 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95">
+                                            <button onClick={() => handleStartTask(task)} className="mt-3 w-full h-10 bg-cyan-500 text-slate-900 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95">
                                                 <PlayIcon className="h-4 w-4" /> Indítás
                                             </button>
                                         )}

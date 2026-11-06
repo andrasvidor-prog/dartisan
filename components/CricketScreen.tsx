@@ -17,6 +17,7 @@ interface PlayerState {
 
 interface CricketScreenProps {
     config: { players: { name: string; color: string }[]; cricketVariant?: CricketVariant };
+    lang: 'hu' | 'en';
     onBack: () => void;
 }
 
@@ -28,7 +29,7 @@ const COLOR_MAP: Record<string, string> = {
     purple:  'text-[#b655ff]   bg-[#b655ff]/20   border-[#b655ff]/50',
 };
 
-export function CricketScreen({ config, onBack }: CricketScreenProps) {
+export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
     const variant: CricketVariant = config.cricketVariant === 'cutthroat' ? 'cutthroat' : 'standard';
     const initPlayers = (): PlayerState[] =>
         config.players.map((p, i) => ({
@@ -113,13 +114,13 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
 
             {/* Header */}
             <div className="flex items-center justify-between p-4 bg-[#12141a] border-b border-slate-800 shrink-0">
-                <button onClick={onBack} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+                <button onClick={onBack} aria-label={lang === 'hu' ? 'Vissza' : 'Back'} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                     <XMarkIcon className="h-6 w-6" />
                 </button>
                 <h1 className="text-xl font-black text-white uppercase italic tracking-wider">{variant === 'cutthroat' ? 'Cut-throat Cricket' : 'Cricket'}</h1>
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setShowTutorial(true)} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-amber-400 transition-colors text-[11px] font-black">?</button>
-                    <button onClick={handleReset} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+                    <button onClick={() => setShowTutorial(true)} aria-label={lang === 'hu' ? 'Szabályok' : 'Rules'} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-amber-400 transition-colors text-[11px] font-black">?</button>
+                    <button onClick={handleReset} aria-label={lang === 'hu' ? 'Újrakezdés' : 'Restart'} className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                         <ArrowPathIcon className="h-6 w-6" />
                     </button>
                 </div>
@@ -152,7 +153,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                             {players.length === 2 && <th className="text-[10px] text-slate-500 font-black uppercase pb-2 w-1/3 text-right pr-4">
                                 {players[0].name}
                             </th>}
-                            <th className="text-[10px] text-slate-500 font-black uppercase pb-2 text-center">Célpont</th>
+                            <th className="text-[10px] text-slate-500 font-black uppercase pb-2 text-center">{lang === 'hu' ? 'Célpont' : 'Target'}</th>
                             {players.length === 2 && <th className="text-[10px] text-slate-500 font-black uppercase pb-2 w-1/3 text-left pl-4">
                                 {players[1].name}
                             </th>}
@@ -206,7 +207,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                             {pendingDarts[i] ? `${pendingDarts[i].mult > 1 ? (pendingDarts[i].mult === 3 ? 'T' : 'D') : ''}${pendingDarts[i].target === 25 ? 'B' : pendingDarts[i].target}` : '—'}
                         </div>
                     ))}
-                    <button onClick={handleUndo} disabled={pendingDarts.length === 0}
+                    <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Visszavonás' : 'Undo'} disabled={pendingDarts.length === 0}
                         className="w-12 sm:w-14 h-10 sm:h-12 bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 disabled:opacity-30 border border-slate-700 active:scale-90 transition-transform">
                         <BackspaceIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                     </button>
@@ -215,13 +216,13 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                 {/* Multiplier */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
                     {([1, 2, 3] as const).map(m => (
-                        <button key={m} onClick={() => setActiveMult(m)}
+                        <button key={m} onClick={() => setActiveMult(m)} aria-pressed={activeMult === m}
                             className={`h-11 sm:h-13 rounded-xl font-black text-xs sm:text-sm uppercase border transition-all active:scale-95 ${activeMult === m
                                 ? m === 1 ? 'bg-white text-black border-white'
                                   : m === 2 ? 'bg-emerald-500 text-black border-emerald-400'
                                   : 'bg-rose-600 text-white border-rose-500'
                                 : 'bg-slate-900 text-slate-500 border-slate-800'}`}>
-                            {m === 1 ? 'Single' : m === 2 ? 'Double' : 'Triple'}
+                            {m === 1 ? (lang === 'hu' ? 'Sima' : 'Single') : m === 2 ? (lang === 'hu' ? 'Dupla' : 'Double') : (lang === 'hu' ? 'Tripla' : 'Triple')}
                         </button>
                     ))}
                 </div>
@@ -242,7 +243,7 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
                     <button onClick={() => recordHit(0, 1)}
                         disabled={pendingDarts.length >= 3}
                         className="h-12 sm:h-14 rounded-xl font-black text-sm col-span-4 bg-slate-900 border border-slate-700 text-slate-500 active:scale-95 disabled:opacity-30 transition-all">
-                        Miss (kihagyás)
+                        {lang === 'hu' ? 'Mellé' : 'Miss'}
                     </button>
                 </div>
             </div>
@@ -252,17 +253,17 @@ export function CricketScreen({ config, onBack }: CricketScreenProps) {
             {winner && (
                 <div className="fixed inset-0 z-50 bg-[#0b0d11]/95 flex flex-col items-center justify-center p-8 text-center">
                     <TrophyIcon className="h-24 w-24 text-amber-400 mb-4 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)]" />
-                    <h2 className="text-4xl font-black text-white uppercase italic tracking-tighter mb-2">Győztes!</h2>
+                    <h2 className="text-4xl font-black text-white uppercase italic tracking-tighter mb-2">{lang === 'hu' ? 'Győztes!' : 'Winner!'}</h2>
                     <p className={`text-2xl font-black uppercase mb-2 ${(COLOR_MAP[winner.color] || '').split(' ')[0]}`}>
                         {winner.name}
                     </p>
-                    <p className="text-slate-400 font-bold mb-10">Pontszám: {winner.score}</p>
+                    <p className="text-slate-400 font-bold mb-10">{lang === 'hu' ? 'Pontszám' : 'Score'}: {winner.score}</p>
                     <div className="flex gap-4 w-full max-w-xs">
                         <button onClick={onBack} className="flex-1 h-14 bg-slate-800 text-white rounded-2xl font-black uppercase text-sm">
-                            Vissza
+                            {lang === 'hu' ? 'Vissza' : 'Back'}
                         </button>
                         <button onClick={handleReset} className="flex-1 h-14 bg-emerald-500 text-slate-950 rounded-2xl font-black uppercase text-sm">
-                            Újra
+                            {lang === 'hu' ? 'Újra' : 'Play again'}
                         </button>
                     </div>
                 </div>

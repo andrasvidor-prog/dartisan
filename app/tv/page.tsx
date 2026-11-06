@@ -33,8 +33,10 @@ const dartCoord = (val: number, mult: number, idx: number) => {
 };
 
 const HEX: Record<string,string> = { emerald:'#34d399', rose:'#fb7185', cyan:'#22d3ee', amber:'#fbbf24', purple:'#b655ff' };
+const subscribeMounted = () => () => {};
 
 export default function TVPage() {
+    const isMounted = useSyncExternalStore(subscribeMounted, () => true, () => false);
     const raw = useSyncExternalStore(subscribeToMatch, () => localStorage.getItem('dartisan_tv_sync'), () => null);
     const syncData = useMemo<TvSync | null>(() => {
         try {
@@ -43,6 +45,8 @@ export default function TVPage() {
                 ? value as TvSync : null;
         } catch { return null; }
     }, [raw]);
+
+    if (!isMounted) return <div role="status" className="fixed inset-0 bg-[#050508] flex items-center justify-center text-xs font-black uppercase tracking-[0.35em] text-emerald-400">DARTISAN TV</div>;
 
     if (!syncData?.players?.length) return (
         <div className="fixed inset-0 bg-[#050508] flex flex-col items-center justify-center gap-4">
@@ -88,8 +92,8 @@ export default function TVPage() {
             </div>
 
             {/* ── FULLSCREEN DARTBOARD ──────────────────────────────────── */}
-            <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
-                <svg viewBox="0 0 300 300" style={{height:'min(75vmin,75vh)',width:'min(75vmin,75vh)'}}>
+            <div className="min-h-0 flex-1 flex items-center justify-center p-3 sm:p-4">
+                <svg viewBox="0 0 300 300" className="max-h-full max-w-full" style={{height:'min(75vmin,75vh)',width:'min(75vmin,75vh)'}}>
                     <circle cx="150" cy="150" r="149" fill="#040406"/>
                     <circle cx="150" cy="150" r="148" fill="#0b0d11"/>
                     {DARTBOARD_ORDER.map((num,i)=>{

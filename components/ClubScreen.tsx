@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
     XMarkIcon, ShieldCheckIcon, UsersIcon, PlusIcon,
     GlobeEuropeAfricaIcon, MagnifyingGlassIcon, ArrowRightEndOnRectangleIcon,
-    TrophyIcon, CheckCircleIcon
+    TrophyIcon, CheckCircleIcon, ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 import {
     collection, query, orderBy, limit, onSnapshot, doc, getDoc, setDoc,
@@ -252,13 +252,19 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
     // ─── Not logged in guard ──────────────────────────────────────────────────
     if (!currentUser) {
         return (
-            <div className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md">
-                <ShieldCheckIcon className="h-24 w-24 text-slate-500 mb-6 animate-pulse" />
-                <h2 className="text-3xl font-black text-white mb-3 uppercase italic tracking-tighter">{t.noClubTitle}</h2>
-                <p className="text-slate-400 font-bold mb-8 max-w-xs">{t.notLoggedIn}</p>
-                <button onClick={onBack} className="w-full max-w-sm h-14 rounded-xl bg-slate-800 text-white font-black uppercase hover:bg-slate-700 transition-colors">
-                    {t.back}
-                </button>
+            <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 py-6 sm:py-9">
+                <div className="max-w-6xl mx-auto">
+                    <header className="flex items-center gap-4 mb-7 sm:mb-9">
+                        <button onClick={onBack} aria-label={t.back} className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
+                        <div><span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-400">DARTISAN / {lang === 'hu' ? 'KÖZÖSSÉG' : 'COMMUNITY'}</span><h1 className="text-3xl sm:text-4xl lg:text-5xl font-black uppercase italic tracking-tight text-white">{t.title}</h1></div>
+                    </header>
+                    <div className="max-w-2xl rounded-3xl border border-cyan-500/25 bg-gradient-to-br from-cyan-500/15 via-[#151a23] to-[#101216] p-6 sm:p-8">
+                        <ShieldCheckIcon className="h-12 w-12 text-cyan-300 mb-5" />
+                        <h2 className="text-xl sm:text-2xl font-black text-white uppercase mb-2">{t.noClubTitle}</h2>
+                        <p className="text-sm text-slate-300 mb-6">{t.notLoggedIn}</p>
+                        <button onClick={onBack} className="h-11 px-5 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase hover:bg-cyan-400 transition-colors">{t.back}</button>
+                    </div>
+                </div>
             </div>
         );
     }

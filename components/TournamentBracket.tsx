@@ -308,9 +308,9 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
     return (
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 flex flex-col h-[100dvh]">
             <div className="flex items-center justify-between p-4 shrink-0 bg-[#12141a] border-b border-slate-800 shadow-xl z-20">
-                <button onClick={onBack} className="p-3 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all"><ArrowLeftIcon className="h-5 w-5 text-white" /></button>
-                <div className="flex flex-col items-center">
-                    <h1 className="text-xl font-black text-white uppercase italic tracking-widest leading-none drop-shadow-[0_0_10px_rgba(182,85,255,0.5)]">{config.name}</h1>
+                <button onClick={onBack} aria-label="Vissza" className="h-11 w-11 shrink-0 flex items-center justify-center bg-slate-800 rounded-xl hover:bg-slate-700 transition-colors"><ArrowLeftIcon className="h-5 w-5 text-white" /></button>
+                <div className="flex-1 min-w-0 mx-2 flex flex-col items-center">
+                    <h1 title={config.name} className="max-w-full truncate text-base sm:text-xl font-black text-white uppercase italic tracking-widest leading-none">{config.name}</h1>
                     <span className="text-[10px] text-[#b655ff] font-bold uppercase tracking-widest mt-1">{phase === 'groups' ? 'Csoportkör' : 'Kieséses Szakasz'}</span>
                 </div>
                 <div className="w-11"></div>
@@ -349,30 +349,37 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
             )}
 
             {phase === 'knockout' && (
-                <div className="flex-1 overflow-x-auto custom-scrollbar p-8 flex gap-12 sm:gap-24 items-center min-h-max bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/40 via-[#0b0d11] to-[#0b0d11]">
+                <>
+                {numRounds > 1 && <p className="sm:hidden shrink-0 px-4 py-2 text-center text-xs font-bold text-slate-400 border-b border-slate-800">← Húzd oldalra a további körökhöz →</p>}
+                <div className="flex-1 min-h-0 overflow-auto overscroll-contain custom-scrollbar p-4 sm:p-8 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/40 via-[#0b0d11] to-[#0b0d11]">
+                    <div className="min-h-full w-max min-w-full flex items-center justify-center">
+                    <div className="flex items-stretch gap-4 sm:gap-8">
                     {Array.from({ length: numRounds }, (_, i) => i).map((round) => (
-                        <div key={round} className="flex flex-col justify-around shrink-0 w-64 gap-6 relative" style={{ minHeight: '100%' }}>
-                            <div className="absolute -top-12 left-0 right-0 text-center"><span className="text-xs font-black text-slate-500 uppercase tracking-[0.3em]">{round === numRounds - 1 ? "Döntő" : round === numRounds - 2 ? "Elődöntő" : "Kör " + (round+1)}</span></div>
-                            {matches.filter(m => m.round === round).map(renderMatchCard)}
+                        <div key={round} className="flex flex-col shrink-0 w-64 gap-4">
+                            <h2 className="h-7 text-center text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{round === numRounds - 1 ? 'Döntő' : round === numRounds - 2 ? 'Elődöntő' : `Kör ${round + 1}`}</h2>
+                            <div className="flex-1 flex flex-col justify-around gap-4">{matches.filter(m => m.round === round).map(renderMatchCard)}</div>
                         </div>
                     ))}
                     {matches.find(m => m.round === numRounds - 1)?.isFinished && (
-                        <div className="flex flex-col items-center shrink-0 w-64 animate-in fade-in zoom-in duration-500">
-                            <TrophyIcon className="h-32 w-32 text-amber-400 mb-4 drop-shadow-[0_0_30px_rgba(251,191,36,0.6)] animate-bounce" />
+                        <div className="flex flex-col items-center justify-center shrink-0 w-64">
+                            <TrophyIcon className="h-24 w-24 text-amber-400 mb-4 drop-shadow-[0_0_30px_rgba(251,191,36,0.6)]" />
                             <h2 className="text-3xl font-black text-white uppercase italic tracking-widest text-center">Bajnok!</h2>
                             <span className="text-xl text-amber-400 font-black uppercase mt-2 text-center">{matches.find(m => m.round === numRounds - 1)?.player1?.id === matches.find(m => m.round === numRounds - 1)?.winnerId ? matches.find(m => m.round === numRounds - 1)?.player1?.name : matches.find(m => m.round === numRounds - 1)?.player2?.name}</span>
                         </div>
                     )}
+                    </div>
+                    </div>
                 </div>
+                </>
             )}
 
             {/* GYORS RÖGZÍTÉS MODAL */}
             {quickEntryMatch && (
-                <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-[#12141a] border border-slate-800 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+                <div role="dialog" aria-modal="true" aria-labelledby="quick-entry-title" className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+                    <div className="bg-[#12141a] border border-slate-800 rounded-[2rem] p-4 sm:p-6 w-full max-w-sm my-auto shadow-2xl animate-in zoom-in-95">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-cyan-400 font-black uppercase tracking-widest flex items-center gap-2"><BoltIcon className="h-6 w-6" /> Eredmény</h3>
-                            <button onClick={() => setQuickEntryMatch(null)} className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white"><XMarkIcon className="h-5 w-5" /></button>
+                            <h3 id="quick-entry-title" className="text-cyan-400 font-black uppercase tracking-widest flex items-center gap-2"><BoltIcon className="h-6 w-6" /> Eredmény</h3>
+                            <button onClick={() => setQuickEntryMatch(null)} aria-label="Bezárás" className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white"><XMarkIcon className="h-5 w-5" /></button>
                         </div>
 
                         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-6 text-center">
@@ -382,24 +389,22 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
                             </span>
                         </div>
 
-                        <div className="flex items-center justify-between gap-4 mb-8">
-                            <div className="flex flex-col items-center flex-1">
+                        <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-8">
+                            <div className="flex flex-col items-center min-w-0">
                                 <span className="text-white font-black uppercase truncate w-full text-center mb-3">{quickEntryMatch.player1?.name}</span>
-                                <div className="flex items-center gap-3">
-                                    <button onClick={() => setQScore1(Math.max(0, qScore1 - 1))} className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">-</button>
-                                    <span className="text-4xl font-mono font-black text-white w-12 text-center">{qScore1}</span>
-                                    <button onClick={() => setQScore1(Math.min(config.setsToWin > 1 ? config.setsToWin : config.legsToWin, qScore1 + 1))} className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">+</button>
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    <button onClick={() => setQScore1(Math.max(0, qScore1 - 1))} aria-label={`${quickEntryMatch.player1?.name}: csökkentés`} className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">-</button>
+                                    <span className="text-3xl sm:text-4xl font-mono font-black text-white w-8 sm:w-10 text-center" aria-live="polite">{qScore1}</span>
+                                    <button onClick={() => setQScore1(Math.min(config.setsToWin > 1 ? config.setsToWin : config.legsToWin, qScore1 + 1))} aria-label={`${quickEntryMatch.player1?.name}: növelés`} className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">+</button>
                                 </div>
                             </div>
-                            
-                            <span className="text-slate-600 font-black text-2xl">-</span>
-                            
-                            <div className="flex flex-col items-center flex-1">
+
+                            <div className="flex flex-col items-center min-w-0">
                                 <span className="text-white font-black uppercase truncate w-full text-center mb-3">{quickEntryMatch.player2?.name}</span>
-                                <div className="flex items-center gap-3">
-                                    <button onClick={() => setQScore2(Math.max(0, qScore2 - 1))} className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">-</button>
-                                    <span className="text-4xl font-mono font-black text-white w-12 text-center">{qScore2}</span>
-                                    <button onClick={() => setQScore2(Math.min(config.setsToWin > 1 ? config.setsToWin : config.legsToWin, qScore2 + 1))} className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">+</button>
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    <button onClick={() => setQScore2(Math.max(0, qScore2 - 1))} aria-label={`${quickEntryMatch.player2?.name}: csökkentés`} className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">-</button>
+                                    <span className="text-3xl sm:text-4xl font-mono font-black text-white w-8 sm:w-10 text-center" aria-live="polite">{qScore2}</span>
+                                    <button onClick={() => setQScore2(Math.min(config.setsToWin > 1 ? config.setsToWin : config.legsToWin, qScore2 + 1))} aria-label={`${quickEntryMatch.player2?.name}: növelés`} className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-slate-800 text-white font-black text-xl hover:bg-slate-700 active:scale-95">+</button>
                                 </div>
                             </div>
                         </div>
