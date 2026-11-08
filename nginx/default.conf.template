@@ -1,0 +1,13 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    error_page 404 /404.html;
+
+    location / {
+        rewrite ^/(.+)/$ /$1 permanent;
+        try_files $uri $uri.html $uri/ =404;
+    }
+}
