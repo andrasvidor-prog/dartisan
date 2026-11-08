@@ -1477,7 +1477,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? '3 nyilas átlag' : '3-dart avg'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.totalDarts ? ((safePlayer.totalPoints / safePlayer.totalDarts) * 3).toFixed(1) : '—'}</div></div>
       </div>
 
-      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full mx-auto flex-col relative shrink-0 ${isStandalonePractice ? 'hidden' : 'flex'} ${inputMode === 'board' ? 'max-w-[1100px] pt-2 pb-2' : 'max-w-[760px] pt-3 pb-6 sm:pb-4'}`}>
+      <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full max-w-[1100px] mx-auto flex-col relative ${isStandalonePractice ? 'hidden' : 'flex'} ${inputMode === 'board' ? 'shrink-0 pt-2 pb-2' : 'shrink-0 pt-3 pb-6 sm:pb-4 md:flex-1 md:shrink md:min-h-[540px]'}`}>
 
         {/* Checkout suggestion bar */}
         <div className={`w-full flex items-center justify-center transition-all ${recObj ? 'min-h-[46px] mb-3' : 'hidden'}`}>
@@ -1506,7 +1506,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
         {/* ── PRO / DETAILED INPUT ── */}
         {inputMode === 'detailed' && (
-            <div className="flex flex-col gap-2 sm:gap-3">
+            <div className="flex flex-col gap-2 sm:gap-3 md:flex-1">
             {/* Dart slots */}
             <div className="flex justify-between gap-2 h-12 sm:h-14 shrink-0">
                 {[0, 1, 2].map((i) => (
@@ -1525,17 +1525,17 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 <button onClick={() => setActiveMult(3)} className={`h-11 sm:h-13 md:h-14 rounded-xl font-black text-[10px] sm:text-xs md:text-base transition-all ${activeMult === 3 ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-500'}`}>TRIPLE</button>
             </div>
             {/* Numbers 1-20 + 0 */}
-            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2 md:flex-1 md:grid-rows-5">
                 {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(n => (
                     <button key={n} onClick={() => handleDartPress(n)}
-                        className="h-10 sm:h-12 md:h-14 bg-slate-800/60 rounded-lg font-black text-sm sm:text-base md:text-2xl active:scale-90 transition-transform">{n}</button>
+                        className="h-10 sm:h-12 md:h-full md:min-h-14 bg-slate-800/60 rounded-lg font-black text-sm sm:text-base md:text-2xl active:scale-90 transition-transform">{n}</button>
                 ))}
                 <button onClick={() => handleDartPress(0)}
-                    className="h-10 sm:h-12 md:h-14 bg-slate-900 rounded-lg font-black text-sm md:text-2xl text-slate-600 active:scale-90 transition-transform border border-slate-800">0</button>
+                    className="h-10 sm:h-12 md:h-full md:min-h-14 bg-slate-900 rounded-lg font-black text-sm md:text-2xl text-slate-600 active:scale-90 transition-transform border border-slate-800">0</button>
                 <button onClick={() => handleDartPress(25)} disabled={activeMult === 3}
-                    className={`h-10 sm:h-12 md:h-14 rounded-lg font-black text-xs md:text-lg col-span-3 transition-all ${activeMult === 3 ? 'opacity-40 bg-slate-900' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'}`}>BULL</button>
+                    className={`h-10 sm:h-12 md:h-full md:min-h-14 rounded-lg font-black text-xs md:text-lg col-span-3 transition-all ${activeMult === 3 ? 'opacity-40 bg-slate-900' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'}`}>BULL</button>
                 <button onClick={() => handleDartPress(0)}
-                    className="h-10 sm:h-12 md:h-14 bg-slate-800/30 rounded-lg font-black text-[10px] md:text-base col-span-1 text-slate-600 uppercase active:scale-90 border border-slate-800">Miss</button>
+                    className="h-10 sm:h-12 md:h-full md:min-h-14 bg-slate-800/30 rounded-lg font-black text-[10px] md:text-base col-span-1 text-slate-600 uppercase active:scale-90 border border-slate-800">Miss</button>
             </div>
             </div>
         )}
@@ -1567,7 +1567,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
         {/* ── FAST INPUT ── */}
         {inputMode === 'fast' && (
-            <div className="flex flex-col gap-2 sm:gap-3">
+            <div className="flex flex-col gap-2 sm:gap-3 md:flex-1">
             {/* Quick score buttons */}
             <div className="flex gap-2">
                 {quickButtons.map(qb => (
@@ -1581,13 +1581,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 <button onClick={handleUndo} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8 sm:h-9 sm:w-9"/></button>
             </div>
             {/* Numpad */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 md:flex-1 md:grid-rows-4">
                 {[1,2,3,4,5,6,7,8,9,0].map(n => (
                     <button key={n} disabled={isBotTurn} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing' && !isBotTurn) setInput(input+n); }}
-                        className={`h-14 sm:h-16 md:h-18 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl md:text-4xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
+                        className={`h-14 sm:h-16 md:h-full md:min-h-18 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl md:text-4xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
                 ))}
                 <button disabled={isBotTurn} onClick={() => handleFastEnter()}
-                    className={`h-14 sm:h-16 md:h-18 rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs md:text-xl font-black uppercase active:scale-95 transition-transform`}>Enter</button>
+                    className={`h-14 sm:h-16 md:h-full md:min-h-18 rounded-xl ${colBg} text-slate-950 text-[11px] sm:text-xs md:text-xl font-black uppercase active:scale-95 transition-transform`}>Enter</button>
             </div>
             </div>
         )}
