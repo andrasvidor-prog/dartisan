@@ -8,7 +8,7 @@ import {
     CalendarDaysIcon, InformationCircleIcon, ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 import { db, auth } from '../firebase';
-import { signOut } from 'firebase/auth';
+import { EmailAuthProvider, linkWithCredential, reload, sendPasswordResetEmail, signOut } from 'firebase/auth';
 import {
     doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
@@ -211,6 +211,22 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const [prefInputMode,  setPrefInputMode]  = useState<'fast' | 'detailed' | 'board'>('fast');
     const [prefFavDouble,  setPrefFavDouble]  = useState('D16');
     const [settingsSaved,  setSettingsSaved]  = useState(false);
+    const [passwordEnabled, setPasswordEnabled] = useState<boolean | null>(() =>
+        auth.currentUser?.providerData.some(provider => provider.providerId === EmailAuthProvider.PROVIDER_ID) ?? null
+    );
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [passwordBusy, setPasswordBusy] = useState(false);
+    const [passwordMessage, setPasswordMessage] = useState('');
+    const [passwordError, setPasswordError] = useState('');
+
+    useEffect(() => {
+        const user = auth.currentUser;
+        if (!user) return;
+        reload(user).then(() => {
+            setPasswordEnabled(user.providerData.some(provider => provider.providerId === EmailAuthProvider.PROVIDER_ID));
+        }).catch(error => console.error('Account providers could not be refreshed:', error));
+    }, []);
 
     // ── Real-time user stats ──────────────────────────────────────────────────
     useEffect(() => {
@@ -284,6 +300,63 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         } catch (error) {
             console.error('Sign-out failed:', error);
             alert('A kijelentkezés nem sikerült. Próbáld újra.');
+        }
+    };
+
+    const handleSetPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const user = auth.currentUser;
+        setPasswordError('');
+        setPasswordMessage('');
+        if (!user?.email) return;
+        if (newPassword.length < 6) return setPasswordError('A jelszó legyen legalább 6 karakteres.');
+        if (newPassword !== confirmPassword) return setPasswordError('A két jelszó nem egyezik.');
+        setPasswordBusy(true);
+        try {
+            await linkWithCredential(user, EmailAuthProvider.credential(user.email, newPassword));
+            setPasswordEnabled(true);
+            setNewPassword('');
+            setConfirmPassword('');
+            setPasswordMessage('A jelszavas belépés aktív. Mostantól ezzel az e-mail-címmel és az új jelszóval is beléphetsz.');
+        } catch (error) {
+            console.error('Password setup failed:', error);
+            const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+            if (code === 'auth/provider-already-linked') {
+                setPasswordEnabled(true);
+                setPasswordMessage('A jelszavas belépés már aktív ennél a fióknál. Ha nem tudsz belépni, kérj jelszó-visszaállító levelet.');
+                return;
+            }
+            setPasswordError(code === 'auth/requires-recent-login'
+                ? 'Biztonsági okból lépj ki, majd jelentkezz be újra Google-lal, és próbáld újra.'
+                : code === 'auth/weak-password'
+                    ? 'A jelszó túl gyenge. Válassz hosszabb, nehezebben kitalálható jelszót.'
+                : code === 'auth/credential-already-in-use' || code === 'auth/email-already-in-use'
+                    ? 'Ehhez az e-mail-címhez már tartozik külön jelszavas fiók. Az összekapcsoláshoz kérj segítséget.'
+                    : `A jelszó beállítása nem sikerült (${code || 'ismeretlen hiba'}). Próbáld újra.`);
+        } finally {
+            setPasswordBusy(false);
+        }
+    };
+
+    const handlePasswordReset = async () => {
+        const email = auth.currentUser?.email;
+        if (!email) return;
+        setPasswordBusy(true);
+        setPasswordError('');
+        setPasswordMessage('');
+        try {
+            await sendPasswordResetEmail(auth, email);
+            setPasswordMessage('Elküldtük a jelszó-visszaállító levelet a fiókod e-mail-címére.');
+        } catch (error) {
+            console.error('Password reset failed:', error);
+            const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+            setPasswordError(code === 'auth/too-many-requests'
+                ? 'Túl sok kérés érkezett. Próbáld újra később.'
+                : code === 'auth/network-request-failed'
+                    ? 'Hálózati hiba történt. Ellenőrizd a kapcsolatot, majd próbáld újra.'
+                    : `Nem sikerült elküldeni a levelet (${code || 'ismeretlen hiba'}).`);
+        } finally {
+            setPasswordBusy(false);
         }
     };
 
@@ -480,6 +553,30 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                     )}
                                 </div>
                             </div>
+
+                            {!isViewingOther && auth.currentUser?.email && (
+                                <section className="rounded-[2rem] border border-emerald-500/25 bg-[#12141a] p-5 sm:p-6" aria-label="Fiók és belépés">
+                                    <h2 className="mb-2 flex items-center gap-2 text-sm font-black uppercase text-white"><ShieldCheckIcon className="h-5 w-5 text-emerald-400" /> Fiók és belépés</h2>
+                                    <p className="break-all text-sm text-slate-400">{auth.currentUser.email}</p>
+                                    <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+                                        <p className="text-xs font-black uppercase text-slate-300">Jelszavas belépés</p>
+                                        <p className={`mt-1 text-sm font-bold ${passwordEnabled ? 'text-emerald-400' : 'text-amber-300'}`}>
+                                            {passwordEnabled === null ? 'Ellenőrzés…' : passwordEnabled ? 'Aktív ennél a fióknál' : 'Nincs beállítva ennél a fióknál'}
+                                        </p>
+                                        {passwordEnabled === false && (
+                                            <form onSubmit={handleSetPassword} className="mt-4 flex flex-col gap-3">
+                                                <p className="text-xs leading-relaxed text-slate-400">Ehhez a fiókhoz új Dartisan-jelszót állíthatsz be. A Google-jelszavadat ne írd ide.</p>
+                                                <input type="password" autoComplete="new-password" aria-label="Új Dartisan-jelszó" placeholder="Új Dartisan-jelszó (legalább 6 karakter)" value={newPassword} onChange={event => setNewPassword(event.target.value)} className="h-12 w-full rounded-xl border border-slate-700 bg-[#12141a] px-4 text-white outline-none focus:border-emerald-500" />
+                                                <input type="password" autoComplete="new-password" aria-label="Új Dartisan-jelszó megerősítése" placeholder="Jelszó még egyszer" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} className="h-12 w-full rounded-xl border border-slate-700 bg-[#12141a] px-4 text-white outline-none focus:border-emerald-500" />
+                                                <button type="submit" disabled={passwordBusy} className="min-h-12 rounded-xl bg-emerald-500 px-4 text-xs font-black uppercase text-slate-950 disabled:opacity-50">{passwordBusy ? 'Folyamatban…' : 'Jelszavas belépés beállítása'}</button>
+                                            </form>
+                                        )}
+                                        {passwordEnabled && <button type="button" onClick={handlePasswordReset} disabled={passwordBusy} className="mt-4 min-h-11 rounded-xl border border-emerald-500/40 px-4 text-xs font-black uppercase text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50">{passwordBusy ? 'Folyamatban…' : 'Jelszó-visszaállító levél küldése'}</button>}
+                                        {passwordError && <p role="alert" className="mt-3 text-xs font-bold text-rose-300">{passwordError}</p>}
+                                        {passwordMessage && <p role="status" className="mt-3 text-xs font-bold text-emerald-300">{passwordMessage}</p>}
+                                    </div>
+                                </section>
+                            )}
 
                             {/* Stats grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
