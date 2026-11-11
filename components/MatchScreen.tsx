@@ -18,11 +18,13 @@ import { canCheckoutInDarts, canScoreInDarts, evaluateVisit } from '../lib/x01';
 import { recordQuestMatch } from '../lib/quests';
 import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
 import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
-import { normalizeHeatmapData } from '../lib/heatmap';
+import { isSector, normalizeHeatmapData, type HeatmapData } from '../lib/heatmap';
+import { applyHeatmapEvent, enqueueHeatmapEvent, flushHeatmapQueue, hunterHeatmapEvent, matchHeatmapEvent, reverseHeatmapEvent, type HeatmapEvent } from '../lib/heatmapSync';
 import type { MatchConfig } from './SetupScreen';
 
-export type Dart = { val: number; mult: number };
+export type Dart = { val: number; mult: number; heatmapEvent?: HeatmapEvent };
 const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
+const AIM_NUMBERS = Array.from({ length: 20 }, (_, index) => index + 1);
 
 export type PlayerData = { 
     id: number; name: string; isBot: boolean; difficulty: number; color: string; 
@@ -395,6 +397,14 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
   const [currentDarts, setCurrentDarts] = useState<Dart[]>(config.resumeState ? config.resumeState.currentDarts || [] : []);
+  const [aimTarget, setAimTarget] = useState<string>(() => {
+      const resumed = config.resumeState?.aimTarget;
+      return resumed && isSector(resumed) ? resumed : '';
+  });
+  const [heatmapPending, setHeatmapPending] = useState(0);
+  const [heatmapSyncError, setHeatmapSyncError] = useState('');
+  const reversedHeatmapEvents = useRef(new Set<string>());
+  const recordedHunterRound = useRef('');
   const [activeMult, setActiveMult] = useState<1 | 2 | 3>(1);
   const [checkoutStrategy, setCheckoutStrategy] = useState<'safe' | 'pro'>(() => {
     const resumedStrategy = config.resumeState?.checkoutStrategy;
@@ -468,23 +478,36 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   };
   const tutKey = getTutorialKey();
   const [showTutorial, setShowTutorial] = useState(() => tutKey ? shouldShowTutorial(tutKey) : false);
-  const [fullHeatmapData, setFullHeatmapData] = useState<Record<string, {hits: number, throws: number}>>({});
+  const [fullHeatmapData, setFullHeatmapData] = useState<HeatmapData>(() => config.resumeState?.heatmapSession || {});
+
+  const sendHeatmapEvent = useCallback((event: HeatmapEvent) => {
+      const user = auth.currentUser;
+      if (!user || user.isAnonymous || event.uid !== user.uid) return;
+      try {
+          setHeatmapPending(enqueueHeatmapEvent(localStorage, event));
+          void flushHeatmapQueue(db, localStorage, user.uid).then(result => {
+              setHeatmapPending(result.pending);
+              setHeatmapSyncError(result.error || '');
+          });
+      } catch (error) {
+          console.error('Heatmap queue could not be saved:', error);
+          setHeatmapSyncError('local-storage');
+      }
+  }, []);
 
   useEffect(() => {
-      const fetchHeatmap = async () => {
-          const user = auth.currentUser;
-          if (!user || user.isAnonymous) return;
-          try {
-              const setupId = config.dartSetupId || 'default';
-              const docSnap = await getDoc(doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId));
-              if (docSnap.exists()) {
-                  const data = docSnap.data() as Record<string, {hits: number, throws: number}>;
-                  setFullHeatmapData(data);
-              }
-          } catch (e) { console.error("Hiba a hőtérkép betöltésekor:", e); }
+      const user = auth.currentUser;
+      if (!user || user.isAnonymous) return;
+      const sync = () => {
+          void flushHeatmapQueue(db, localStorage, user.uid).then(result => {
+              setHeatmapPending(result.pending);
+              setHeatmapSyncError(result.error || '');
+          });
       };
-      fetchHeatmap();
-  }, [config]);
+      sync();
+      window.addEventListener('online', sync);
+      return () => window.removeEventListener('online', sync);
+  }, []);
 
   useEffect(() => {
       localStorage.setItem('dartisan_tv_sync', JSON.stringify({
@@ -618,13 +641,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     else localStorage.setItem('dartisan_save', JSON.stringify({
             players, activePlayer, isLegWinner, isSetWinner, isMatchWinner,
             config: { ...config, resumeState: undefined }, currentDarts,
-            inputMode, checkoutStrategy, asyncState,
+            inputMode, checkoutStrategy, asyncState, aimTarget, heatmapSession: fullHeatmapData,
             matchId: matchIdRef.current,
             authUid: isAsync ? auth.currentUser?.uid : undefined,
             onlineLeg: isAsync ? (fbSyncData?.state?.currentLeg ?? config.resumeState?.onlineLeg ?? 1) : undefined,
             resolvedLegNumber: isAsync ? resolvedLegRef.current : undefined,
         }));
-  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData]);
+  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData, aimTarget, fullHeatmapData]);
 
   useEffect(() => {
       if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
@@ -881,10 +904,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       else if (pts >= 100) playerObj.count100 += 1; 
   };
 
-  const recordHeatmapLocal = (val: number, mult: number) => {
-      const prefix = mult === 3 ? 'T' : mult === 2 ? 'D' : 'S';
-      const key = val === 25 ? (mult === 2 ? '50' : '25') : `${prefix}${val}`;
-      setFullHeatmapData(prev => ({ ...prev, [key]: { hits: (prev[key]?.hits || 0) + 1, throws: (prev[key]?.throws || 0) + 1 } }));
+  const recordHeatmapLocal = useCallback((event: HeatmapEvent) => {
+      setFullHeatmapData(prev => applyHeatmapEvent(prev, event));
+      sendHeatmapEvent(event);
+  }, [sendHeatmapEvent]);
+
+  const undoHeatmapDart = (dart: Dart) => {
+      const event = dart.heatmapEvent;
+      if (!event || reversedHeatmapEvents.current.has(event.id)) return;
+      reversedHeatmapEvents.current.add(event.id);
+      recordHeatmapLocal(reverseHeatmapEvent(event));
   };
 
   const handleWin = useCallback((playerIndex: number, checkoutValue: number, winningDartsInRound: number) => {
@@ -942,7 +971,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     const dartPoints = val * mult;
 
     if (val === 0) triggerHaptic('miss'); else triggerHaptic('hit');
-    if (!activeP.isBot && val !== 0 && config.gameMode !== 'practice') recordHeatmapLocal(val, mult);
+    const heatmapEvent = !activeP.isBot && config.gameMode !== 'practice'
+        ? matchHeatmapEvent(auth.currentUser?.uid || 'guest', config.dartSetupId || 'default', val, mult, aimTarget || null)
+        : null;
+    if (heatmapEvent) recordHeatmapLocal(heatmapEvent);
+    const recordedDart: Dart = { val, mult, ...(heatmapEvent ? { heatmapEvent } : {}) };
     
     if (config.gameMode === 'practice') {
         const newDarts = [...currentDarts, { val, mult }]; 
@@ -1016,7 +1049,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         }
     }
 
-    const allDarts = [...currentDarts, { val, mult }];
+    const allDarts = [...currentDarts, recordedDart];
     const visit = evaluateVisit(activeP.score, allDarts.map(d => ({ val: d.val, mult: (d.val === 0 ? 1 : d.mult) as 1 | 2 | 3 })), {
         checkIn: config.checkIn,
         checkout: config.checkout,
@@ -1044,7 +1077,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     const isOut = visit.checkout;
     
     if (isOut) {
-        setCurrentDarts([...currentDarts, { val, mult }]);
+        setCurrentDarts(allDarts);
         if (isAsync) { 
             announceScore(txt.checkoutMsg(validPts), false, false, true);
             triggerHaptic('checkout');
@@ -1092,7 +1125,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (validPts === 180) announceScore('', true, false); 
         else announceScore(validPts.toString()); 
     }
-  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt]);
+  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt, aimTarget, recordHeatmapLocal, finishAsyncLeg, isAsync, triggerCelebration]);
 
   const handleDartPress = (val: number, overrideMult?: number) => { 
       triggerHaptic('tap');
@@ -1234,17 +1267,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     }
   }, [currentDarts, activePlayer, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, bobsScore, bobsRoundScore, practiceTarget, nextPlayerIdx, config, players]);
 
-  const handleHunterHit = async (hits: number) => {
+  const handleHunterHit = (hits: number) => {
+      if (practiceStatus !== 'playing' || !Number.isInteger(hits) || hits < 0 || hits > 3) return;
+      const roundKey = `${hunterRound}:${hunterTargetStr}`;
+      if (recordedHunterRound.current === roundKey) return;
+      recordedHunterRound.current = roundKey;
       triggerHaptic('tap'); setHunterTotalHits(prev => prev + hits);
-      const user = auth.currentUser;
-      if (user && !user.isAnonymous) {
-          try {
-              const setupId = config.dartSetupId || 'default';
-              const heatmapRef = doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId);
-              await setDoc(heatmapRef, { [hunterTargetStr]: { hits: increment(hits), throws: increment(3) } }, { merge: true });
-              setFullHeatmapData(prev => ({ ...prev, [hunterTargetStr]: { hits: (prev[hunterTargetStr]?.hits || 0) + hits, throws: (prev[hunterTargetStr]?.throws || 0) + 3 } }));
-          } catch (error) { console.error("Hőtérkép mentés hiba:", error); }
-      }
+      recordHeatmapLocal(hunterHeatmapEvent(auth.currentUser?.uid || 'guest', config.dartSetupId || 'default', hunterTargetStr, hits));
       if (hunterRound >= 10) { setPracticeStatus('won'); triggerCelebration('checkout', `${hunterTotalHits + hits}/30`, 'Heatmap Updated!', players[0].color); } 
       else { setHunterRound(prev => prev + 1); setHunterTargetStr(randomHunterTarget()); }
   };
@@ -1274,10 +1303,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     }
 
     if (inputMode === 'fast' && input.length > 0) { setInput(input.slice(0, -1)); return; }
-    if ((inputMode === 'detailed' || inputMode === 'board') && currentDarts.length > 0 && !players[activePlayer].isBot) { setCurrentDarts(currentDarts.slice(0, -1)); return; }
+    if ((inputMode === 'detailed' || inputMode === 'board') && currentDarts.length > 0 && !players[activePlayer].isBot) {
+        undoHeatmapDart(currentDarts[currentDarts.length - 1]);
+        setCurrentDarts(currentDarts.slice(0, -1)); return;
+    }
     if (!players.some(p => p.history.length > 0)) return;
     
     const prevPlayerIdx = activePlayer === 0 ? players.length - 1 : activePlayer - 1;
+    const lastVisit = players[prevPlayerIdx].history.at(-1);
+    if (!lastVisit) return;
+    lastVisit?.roundDarts.forEach(undoHeatmapDart);
     setPlayers(prev => {
         const np = copyPlayers(prev);
         const pl = np[prevPlayerIdx]; 
@@ -1300,7 +1335,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       if (config.gameMode === 'practice') { 
           setPracticeTarget(1); setBobsScore(27); setBobsRoundScore(0); 
           if (config.practiceType === '121') { setC121Target(121); setC121DartsLeft(9); setPlayers(prev => [{...prev[0], score: 121, history: []}]); }
-          if (config.practiceType === 'hunter') { setHunterRound(1); setHunterTotalHits(0); setHunterTargetStr(HUNTER_TARGETS[0]); }
+          if (config.practiceType === 'hunter') { setHunterRound(1); setHunterTotalHits(0); setHunterTargetStr(HUNTER_TARGETS[0]); recordedHunterRound.current = ''; }
           if (config.practiceType === 'math') { setMathRound(1); setMathScore(0); setMathInput(''); generateMathQuestion(); }
           setPracticeStatus('playing'); setCurrentDarts([]); return; 
       }
@@ -1319,12 +1354,6 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   
   const handleExit = () => { 
       if (isMatchWinner || config.gameMode === 'practice' || (!isAsync && !hasMatchProgress)) localStorage.removeItem('dartisan_save');
-      const user = auth.currentUser;
-      if (user && !user.isAnonymous && Object.keys(fullHeatmapData).length > 0) {
-          const setupId = config.dartSetupId || 'default';
-          setDoc(doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', setupId), fullHeatmapData, { merge: true })
-            .catch(err => console.error("Kilépési mentés hiba:", err));
-      }
       onBackToSetup(); 
   };
 
@@ -1467,10 +1496,28 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
         {/* Mode selector */}
         <div className="flex gap-2 w-full mb-3 shrink-0">
-            <button onClick={() => setInputMode('detailed')} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'detailed' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Pro</button>
-            <button onClick={() => setInputMode('board')}    className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Tábla</button>
-            <button onClick={() => setInputMode('fast')} disabled={config.checkIn !== 'single' || config.gameMode === 'practice'} title={config.gameMode === 'practice' ? (lang === 'hu' ? 'Az edzéshez nyilankénti bevitel szükséges' : 'Training requires dart-by-dart input') : config.checkIn !== 'single' ? (lang === 'hu' ? 'Dupla vagy Master beszállónál nyilankénti bevitel szükséges' : 'Dart-by-dart input is required for double or Master entry') : undefined} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'} disabled:opacity-40 disabled:cursor-not-allowed`}>Fast</button>
+            <button onClick={() => setInputMode('detailed')} disabled={currentDarts.length > 0 && inputMode !== 'detailed'} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all disabled:opacity-40 ${inputMode === 'detailed' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Pro</button>
+            <button onClick={() => setInputMode('board')} disabled={currentDarts.length > 0 && inputMode !== 'board'} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all disabled:opacity-40 ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Tábla</button>
+            <button onClick={() => setInputMode('fast')} disabled={config.checkIn !== 'single' || config.gameMode === 'practice' || currentDarts.length > 0 && inputMode !== 'fast'} title={config.gameMode === 'practice' ? (lang === 'hu' ? 'Az edzéshez nyilankénti bevitel szükséges' : 'Training requires dart-by-dart input') : config.checkIn !== 'single' ? (lang === 'hu' ? 'Dupla vagy Master beszállónál nyilankénti bevitel szükséges' : 'Dart-by-dart input is required for double or Master entry') : undefined} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'} disabled:opacity-40 disabled:cursor-not-allowed`}>Fast</button>
         </div>
+
+        {(inputMode === 'detailed' || inputMode === 'board') && config.gameMode !== 'practice' && (
+            <div className="mb-3 flex min-w-0 items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/80 px-3 py-2 text-xs text-slate-300">
+                <label htmlFor="aim-target" className="shrink-0 font-bold">{lang === 'hu' ? 'Célpont' : 'Aiming at'}</label>
+                <select id="aim-target" value={aimTarget} onChange={event => setAimTarget(event.target.value)} disabled={safePlayer.isBot}
+                    aria-label={lang === 'hu' ? 'Célzott szektor a következő nyilakhoz' : 'Aimed sector for next darts'}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 font-bold text-white outline-none focus:border-cyan-400 disabled:opacity-50">
+                    <option value="">{lang === 'hu' ? 'Nincs megadva · csak találatok' : 'Not selected · hits only'}</option>
+                    <option value="25">25</option><option value="50">Bull (50)</option>
+                    {(['T', 'D', 'S'] as const).map(prefix => <optgroup key={prefix} label={prefix === 'T' ? 'Tripla' : prefix === 'D' ? 'Dupla' : 'Sima'}>
+                        {AIM_NUMBERS.map(number => <option key={`${prefix}${number}`} value={`${prefix}${number}`}>{prefix}{number}</option>)}
+                    </optgroup>)}
+                </select>
+            </div>
+        )}
+        {heatmapSyncError && <p role="status" className="mb-2 text-center text-xs text-slate-400">{heatmapSyncError === 'local-storage'
+            ? (lang === 'hu' ? 'A hőtérkép helyi mentése nem sikerült. Ellenőrizd a böngésző tárhelyét.' : 'Could not save heatmap locally. Check browser storage.')
+            : (lang === 'hu' ? `${heatmapPending} nyíl helyben mentve; kapcsolat esetén szinkronizáljuk.` : `${heatmapPending} throws saved locally; syncing when connected.`)}</p>}
 
         {/* ── PRO / DETAILED INPUT ── */}
         {inputMode === 'detailed' && (

@@ -1,7 +1,7 @@
 'use client';
 
 import type { KeyboardEvent } from 'react';
-import { sectorHits, sectorType, type HeatmapData, type HeatmapFilter } from '../lib/heatmap';
+import { sectorHits, sectorType, type AimStat, type HeatmapData, type HeatmapFilter } from '../lib/heatmap';
 
 const BOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 
@@ -15,6 +15,17 @@ export const heatmapBands = [
 
 export const heatmapColor = (hits: number) =>
     hits >= 20 ? heatmapBands[4].color : hits >= 10 ? heatmapBands[3].color : hits >= 3 ? heatmapBands[2].color : hits >= 1 ? heatmapBands[1].color : heatmapBands[0].color;
+
+const accuracyBands = [
+    { label: '0%', color: '#4b5964' },
+    { label: '1–24%', color: '#657985' },
+    { label: '25–49%', color: '#879ba6' },
+    { label: '50–74%', color: '#b0c1c9' },
+    { label: '75–100%', color: '#e7ecef' },
+] as const;
+
+const accuracyColor = (rate: number) =>
+    rate >= 75 ? accuracyBands[4].color : rate >= 50 ? accuracyBands[3].color : rate >= 25 ? accuracyBands[2].color : rate > 0 ? accuracyBands[1].color : accuracyBands[0].color;
 
 const emptySectorColor = (index: number, ring: 'single' | 'triple' | 'double' | 'bull') => {
     if (ring === 'bull') return '#303741';
@@ -37,36 +48,40 @@ const arc = (cx: number, cy: number, inner: number, outer: number, start: number
     return `M ${a.x} ${a.y} A ${outer} ${outer} 0 ${large} 0 ${b.x} ${b.y} L ${d.x} ${d.y} A ${inner} ${inner} 0 ${large} 1 ${c.x} ${c.y} Z`;
 };
 
-export function HeatmapLegend() {
-    return <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[10px] font-bold text-slate-300" aria-label="Találatok száma színenként">
-        {heatmapBands.map(band => <span key={band.label} className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm border border-white/15" style={{ backgroundColor: band.color }} />{band.label}</span>)}
-        <span className="text-slate-500">találat</span>
+export function HeatmapLegend({ metric = 'hits' }: { metric?: 'hits' | 'accuracy' }) {
+    return <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[10px] font-bold text-slate-300" aria-label={metric === 'accuracy' ? 'Célzási arány színenként' : 'Találatok száma színenként'}>
+        {(metric === 'accuracy' ? accuracyBands : heatmapBands).map(band => <span key={band.label} className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm border border-white/15" style={{ backgroundColor: band.color }} />{band.label}</span>)}
+        <span className="text-slate-500">{metric === 'accuracy' ? 'pontosság' : 'találat'}</span>
     </div>;
 }
 
-export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSector }: {
+export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSector, metric = 'hits', accuracy = {} }: {
     data: HeatmapData;
     filter?: HeatmapFilter;
     selectedSector?: string | null;
     onSelectSector?: (sector: string) => void;
+    metric?: 'hits' | 'accuracy';
+    accuracy?: Record<string, AimStat>;
 }) {
     const center = 160;
     const angle = 18;
     const sectorAttributes = (key: string, emptyColor: string, keyboard = true) => {
         const active = filter === 'all' || sectorType(key) === filter;
         const hits = sectorHits(data, key);
+        const attempts = accuracy[key]?.attempts || 0;
+        const rate = attempts > 0 ? Math.round((accuracy[key].hits / attempts) * 100) : 0;
         const selected = selectedSector === key && active;
-        const interactive = Boolean(active && onSelectSector && hits > 0);
+        const interactive = Boolean(active && onSelectSector && (metric === 'accuracy' ? attempts > 0 : hits > 0));
         const accessible = interactive && keyboard;
         return {
-            fill: active ? (hits > 0 ? heatmapColor(hits) : emptyColor) : '#161b20',
+            fill: active ? (metric === 'accuracy' ? (attempts > 0 ? accuracyColor(rate) : emptyColor) : (hits > 0 ? heatmapColor(hits) : emptyColor)) : '#161b20',
             opacity: active ? 1 : 0.55,
             stroke: selected ? '#22d3ee' : '#0b0d11',
             strokeWidth: selected ? 2.6 : 1.2,
             className: interactive ? 'cursor-pointer hover:brightness-125 transition-[filter]' : undefined,
             role: accessible ? 'button' : undefined,
             tabIndex: accessible ? 0 : undefined,
-            'aria-label': accessible ? `${key}: ${hits} találat` : undefined,
+            'aria-label': accessible ? (metric === 'accuracy' ? `${key}: ${rate}% pontosság, ${attempts} kísérlet` : `${key}: ${hits} találat`) : undefined,
             'aria-hidden': accessible ? undefined : true,
             onClick: interactive ? () => onSelectSector?.(key) : undefined,
             onKeyDown: accessible ? (event: KeyboardEvent<SVGElement>) => {
@@ -76,7 +91,7 @@ export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSec
     };
     const segment = (key: string, path: string, emptyColor: string, keyboard = true) => <path key={path} d={path} {...sectorAttributes(key, emptyColor, keyboard)} />;
 
-    return <svg viewBox="0 0 320 320" aria-label="Szektoronként rögzített találatok térképe" className="block h-auto w-full max-w-[560px] mx-auto drop-shadow-[0_16px_30px_rgba(0,0,0,0.35)]">
+    return <svg viewBox="0 0 320 320" aria-label={metric === 'accuracy' ? 'Szektoronként mért célzási pontosság' : 'Szektoronként rögzített találatok térképe'} className="block h-auto w-full max-w-[560px] mx-auto drop-shadow-[0_16px_30px_rgba(0,0,0,0.35)]">
         <circle cx={center} cy={center} r="158" fill="#0b0d11" />
         {BOARD_ORDER.map((number, index) => {
             const start = index * angle - angle / 2;

@@ -18,6 +18,8 @@ import { doc, getDoc, onSnapshot, collection, query, orderBy, limit, runTransact
 import { questsFor, readQuestProgress, type QuestProgress } from '../lib/quests';
 import { TRAINING_MODES } from '../lib/training';
 import { bullOffWinner, isMatchPreset, readMatchPresets, writeMatchPresets, type BullOffHit, type MatchPreset } from '../lib/matchPresets';
+import { flushHeatmapQueue } from '../lib/heatmapSync';
+import type { HeatmapData } from '../lib/heatmap';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
 type DisplayUser = Pick<User, 'uid' | 'email' | 'displayName' | 'photoURL'> & { selectedAvatar?: string };
@@ -30,6 +32,8 @@ export type SavedMatch = {
     isSetWinner: boolean;
     isMatchWinner: boolean;
     currentDarts: Dart[];
+    heatmapSession?: HeatmapData;
+    aimTarget?: string | null;
     inputMode?: 'detailed' | 'fast' | 'board';
     checkoutStrategy?: 'safe' | 'pro';
     asyncState?: 'playing' | 'waiting_leg' | 'waiting_match';
@@ -194,6 +198,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
         if (user && !user.isAnonymous) {
+            void flushHeatmapQueue(db, localStorage, user.uid);
             const displayName = user.displayName || user.email?.split('@')[0] || 'Player';
             setCurrentUser({ uid: user.uid, email: user.email, photoURL: user.photoURL, displayName });
             setPlayers(prev => [{ ...prev[0], name: displayName }, ...prev.slice(1)]);
@@ -220,6 +225,15 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
         }
     });
     return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    const syncQueuedHeatmap = () => {
+      const user = auth.currentUser;
+      if (user && !user.isAnonymous) void flushHeatmapQueue(db, localStorage, user.uid);
+    };
+    window.addEventListener('online', syncQueuedHeatmap);
+    return () => window.removeEventListener('online', syncQueuedHeatmap);
   }, []);
 
   useEffect(() => {

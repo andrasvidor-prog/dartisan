@@ -7,15 +7,15 @@ import {
     UsersIcon, CheckCircleIcon, XMarkIcon, ShieldCheckIcon, BoltIcon,
     CalendarDaysIcon, ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
-import { db, auth } from '../firebase';
-import { EmailAuthProvider, linkWithCredential, reload, sendPasswordResetEmail, signOut } from 'firebase/auth';
+import { db, auth, googleProvider } from '../firebase';
+import { EmailAuthProvider, reauthenticateWithPopup, reload, sendPasswordResetEmail, signOut, updatePassword } from 'firebase/auth';
 import {
     doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
 import { matchHistoryCsv, matchTrend, recordedMatchScore, type MatchAnalyticsRow } from '../lib/matchAnalytics';
 import { HeatmapBoard, HeatmapLegend, heatmapColor } from './HeatmapBoard';
-import { normalizeHeatmapData, sectorHits, sectorType, type HeatmapData, type HeatmapFilter } from '../lib/heatmap';
+import { mergeAimStats, mergeHeatmaps, normalizeAimStat, normalizeHeatmapData, sectorHits, sectorType, type AimStat, type HeatmapData, type HeatmapFilter, type HeatmapSource } from '../lib/heatmap';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PREDEFINED_AVATARS = [
@@ -36,7 +36,7 @@ const ACH_COLORS: Record<string, { bg: string; border: string; text: string; ico
 };
 
 // ─── Heatmap SVG ──────────────────────────────────────────────────────────────
-type HM = HeatmapData;
+type HeatmapSourceFilter = 'all' | 'match' | 'training' | 'legacy';
 
 type ProfileStats = {
     id: string; name: string; tag: number; xp: number; friends: string[];
@@ -108,7 +108,12 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const [isViewingOther, setIsViewingOther] = useState(false);
 
     const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
-    const [userHeatmap, setUserHeatmap]   = useState<HM | null>(null);
+    const [legacyHeatmaps, setLegacyHeatmaps] = useState<{ setupId: string; data: HeatmapData }[]>([]);
+    const [landingHeatmaps, setLandingHeatmaps] = useState<{ setupId: string; source: HeatmapSource; data: HeatmapData }[]>([]);
+    const [aimStats, setAimStats] = useState<AimStat[]>([]);
+    const [hmSource, setHmSource] = useState<HeatmapSourceFilter>('all');
+    const [hmSetup, setHmSetup] = useState('all');
+    const [hmMetric, setHmMetric] = useState<'hits' | 'accuracy'>('hits');
     const [hmFilter, setHmFilter]         = useState<HeatmapFilter>('all');
     const [selectedSector, setSelectedSector] = useState<string | null>(null);
     const [isLoadingHM, setIsLoadingHM]   = useState(true);
@@ -237,7 +242,18 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         if (newPassword !== confirmPassword) return setPasswordError('A két jelszó nem egyezik.');
         setPasswordBusy(true);
         try {
-            await linkWithCredential(user, EmailAuthProvider.credential(user.email, newPassword));
+            try {
+                await updatePassword(user, newPassword);
+            } catch (error) {
+                const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+                if (code !== 'auth/requires-recent-login' || !user.providerData.some(provider => provider.providerId === 'google.com')) throw error;
+                await reauthenticateWithPopup(user, googleProvider);
+                await updatePassword(user, newPassword);
+            }
+            await reload(user);
+            if (!user.providerData.some(provider => provider.providerId === EmailAuthProvider.PROVIDER_ID)) {
+                throw new Error('A Firebase nem erősítette meg a jelszavas belépés bekapcsolását.');
+            }
             setPasswordEnabled(true);
             setNewPassword('');
             setConfirmPassword('');
@@ -245,17 +261,14 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         } catch (error) {
             console.error('Password setup failed:', error);
             const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
-            if (code === 'auth/provider-already-linked') {
-                setPasswordEnabled(true);
-                setPasswordMessage('A jelszavas belépés már aktív ennél a fióknál. Ha nem tudsz belépni, kérj jelszó-visszaállító levelet.');
-                return;
-            }
             setPasswordError(code === 'auth/requires-recent-login'
                 ? 'Biztonsági okból lépj ki, majd jelentkezz be újra Google-lal, és próbáld újra.'
+                : code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'
+                    ? 'A Google megerősítés megszakadt. Próbáld újra a jelszó beállítását.'
+                : code === 'auth/popup-blocked'
+                    ? 'A böngésző blokkolta a Google megerősítő ablakot. Engedélyezd az előugró ablakokat, majd próbáld újra.'
                 : code === 'auth/weak-password'
                     ? 'A jelszó túl gyenge. Válassz hosszabb, nehezebben kitalálható jelszót.'
-                : code === 'auth/credential-already-in-use' || code === 'auth/email-already-in-use'
-                    ? 'Ehhez az e-mail-címhez már tartozik külön jelszavas fiók. Az összekapcsoláshoz kérj segítséget.'
                     : `A jelszó beállítása nem sikerült (${code || 'ismeretlen hiba'}). Próbáld újra.`);
         } finally {
             setPasswordBusy(false);
@@ -284,29 +297,32 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
         }
     };
 
-    // ── Heatmap (real-time, load when tab is active) ──────────────────────────
+    // ── Heatmap: legacy and new event totals stay separate to avoid double counting. ──
     useEffect(() => {
         if (activeTab !== 'analytics') return;
         const user = auth.currentUser;
         if (!user) return;
-        const unsub = onSnapshot(
-            doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', 'default'),
-            (snap) => {
-                setIsLoadingHM(false);
-                setHeatmapError(false);
-                if (snap.exists() && Object.keys(snap.data()).length > 0) {
-                    setUserHeatmap(snap.data() as HM);
-                } else {
-                    setUserHeatmap(null);
-                }
-            },
-            (error) => {
-                console.error('Heatmap could not be loaded:', error);
-                setIsLoadingHM(false);
-                setHeatmapError(true);
-            }
-        );
-        return () => unsub();
+        const loaded = new Set<string>();
+        const markLoaded = (name: string) => { loaded.add(name); if (loaded.size === 3) { setIsLoadingHM(false); setHeatmapError(false); } };
+        const onError = (error: Error) => { console.error('Heatmap could not be loaded:', error); setHeatmapError(true); setIsLoadingHM(false); };
+        const legacy = onSnapshot(collection(db, 'users', user.uid, 'stats', 'heatmaps', 'setups'), snapshot => {
+            setLegacyHeatmaps(snapshot.docs.map(item => ({ setupId: item.id, data: normalizeHeatmapData(item.data() as HeatmapData) })));
+            markLoaded('legacy');
+        }, onError);
+        const landings = onSnapshot(collection(db, 'users', user.uid, 'stats', 'landings', 'setups'), snapshot => {
+            setLandingHeatmaps(snapshot.docs.flatMap(item => {
+                const data = item.data();
+                return (data.source === 'match' || data.source === 'training') && typeof data.setupId === 'string'
+                    ? [{ setupId: data.setupId as string, source: data.source as HeatmapSource, data: normalizeHeatmapData(data.sectors || {}) }]
+                    : [];
+            }));
+            markLoaded('landings');
+        }, onError);
+        const aims = onSnapshot(collection(db, 'users', user.uid, 'stats', 'aims', 'targets'), snapshot => {
+            setAimStats(snapshot.docs.flatMap(item => { const value = normalizeAimStat(item.data()); return value ? [value] : []; }));
+            markLoaded('aims');
+        }, onError);
+        return () => { legacy(); landings(); aims(); };
     }, [activeTab]);
 
     // ── Derived stats ─────────────────────────────────────────────────────────
@@ -342,7 +358,17 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     ] : [];
 
     // ── Heatmap derived data ──────────────────────────────────────────────────
-    const displayHeatmap = useMemo(() => normalizeHeatmapData(userHeatmap || {}), [userHeatmap]);
+    const hmSetups = useMemo(() => Array.from(new Set([
+        ...legacyHeatmaps.map(item => item.setupId), ...landingHeatmaps.map(item => item.setupId), ...aimStats.map(item => item.setupId),
+    ])).sort(), [legacyHeatmaps, landingHeatmaps, aimStats]);
+    const displayHeatmap = useMemo(() => mergeHeatmaps(
+        ...(hmSource === 'all' || hmSource === 'legacy' ? legacyHeatmaps.filter(item => hmSetup === 'all' || item.setupId === hmSetup).map(item => item.data) : []),
+        ...(hmSource === 'legacy' ? [] : landingHeatmaps.filter(item => (hmSetup === 'all' || item.setupId === hmSetup) && (hmSource === 'all' || item.source === hmSource)).map(item => item.data)),
+    ), [legacyHeatmaps, landingHeatmaps, hmSource, hmSetup]);
+    const displayAims = useMemo(() => mergeAimStats(aimStats.filter(item =>
+        (hmSetup === 'all' || item.setupId === hmSetup) && (hmSource === 'all' || item.source === hmSource)
+    )), [aimStats, hmSetup, hmSource]);
+    const aimList = useMemo(() => Object.values(displayAims).filter(item => item.attempts > 0).sort((a, b) => b.attempts - a.attempts), [displayAims]);
     const heatList = useMemo(() => {
         const totalHits = Object.keys(displayHeatmap).reduce((sum, key) => sum + sectorHits(displayHeatmap, key), 0) || 1;
         return Object.keys(displayHeatmap)
@@ -355,6 +381,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const filteredHeatList = useMemo(() => hmFilter === 'all' ? heatList : heatList.filter(item => item.type === hmFilter), [heatList, hmFilter]);
     const totalHeatHits = heatList.reduce((sum, item) => sum + item.hits, 0);
     const activeHeatSector = filteredHeatList.find(item => item.key === selectedSector) || filteredHeatList[0] || null;
+    const filteredAimList = hmFilter === 'all' ? aimList : aimList.filter(item => sectorType(item.target) === hmFilter);
+    const activeAimSector = filteredAimList.find(item => item.target === selectedSector) || filteredAimList[0] || null;
 
     // ── Social search ─────────────────────────────────────────────────────────
     const handleSearch = async () => {
@@ -657,18 +685,35 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                 <h2 className="text-lg font-black text-white uppercase italic flex items-center gap-2">
                                     <ChartBarIcon className="h-5 w-5 text-cyan-400" /> Találati térkép
                                 </h2>
-                                <p className="mt-1 text-sm text-slate-400">Hol landoltak a rögzített nyilaid? A színek találatszámot mutatnak, nem célzási pontosságot.</p>
+                                <p className="mt-1 text-sm text-slate-400">Nézd meg, hová érkeznek a nyilaid, és mely célpontokat találod el pontosan. A régi adatok csak találatszámot tartalmaznak.</p>
+                            </div>
+
+                            <div className="grid gap-3 rounded-2xl border border-slate-800 bg-[#12141a] p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                                <label className="min-w-0 text-xs font-bold text-slate-400">Forrás
+                                    <select value={hmSource} onChange={event => { setHmSource(event.target.value as HeatmapSourceFilter); setSelectedSector(null); }} className="mt-1 block h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-400">
+                                        <option value="all">Összes adat</option><option value="match">Meccs</option><option value="training">Edzés</option><option value="legacy">Korábbi adatok</option>
+                                    </select>
+                                </label>
+                                <label className="min-w-0 text-xs font-bold text-slate-400">Dartskészlet
+                                    <select value={hmSetup} onChange={event => { setHmSetup(event.target.value); setSelectedSector(null); }} className="mt-1 block h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-400">
+                                        <option value="all">Minden készlet</option>{hmSetups.map(setup => <option key={setup} value={setup}>{setup === 'default' ? 'Alapértelmezett' : setup}</option>)}
+                                    </select>
+                                </label>
+                                <div className="flex h-11 rounded-xl border border-slate-700 bg-slate-900 p-1" role="group" aria-label="Hőtérkép mód">
+                                    <button type="button" onClick={() => { setHmMetric('hits'); setSelectedSector(null); }} aria-pressed={hmMetric === 'hits'} className={`flex-1 rounded-lg px-3 text-xs font-black ${hmMetric === 'hits' ? 'bg-cyan-400 text-slate-950' : 'text-slate-300'}`}>Találatok</button>
+                                    <button type="button" onClick={() => { setHmMetric('accuracy'); setSelectedSector(null); }} aria-pressed={hmMetric === 'accuracy'} className={`flex-1 rounded-lg px-3 text-xs font-black ${hmMetric === 'accuracy' ? 'bg-cyan-400 text-slate-950' : 'text-slate-300'}`}>Pontosság</button>
+                                </div>
                             </div>
 
                             {isLoadingHM ? (
                                 <div className="text-center py-16 animate-pulse text-slate-500 text-xs font-black uppercase tracking-widest">Betöltés...</div>
                             ) : heatmapError ? (
                                 <div role="alert" className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-100">A találati térkép most nem tölthető be. Ellenőrizd a kapcsolatot, majd nyisd meg újra ezt a fület.</div>
-                            ) : heatList.length === 0 ? (
+                            ) : (hmMetric === 'hits' ? heatList.length === 0 : aimList.length === 0) ? (
                                 <div className="flex flex-col items-center py-16 bg-[#12141a] rounded-3xl border border-dashed border-slate-700 text-center px-8">
                                     <ChartBarIcon className="h-16 w-16 text-slate-600 mb-4" />
-                                    <h3 className="text-lg font-black text-white uppercase italic mb-2">Még nincs szektoradat</h3>
-                                    <p className="text-slate-400 text-sm font-bold max-w-sm leading-relaxed">Játssz PRO vagy TÁBLA bevitelben, vagy végezz Célpont Vadász edzést. A FAST körösszegből nem derül ki, melyik szektort találtad el.</p>
+                                    <h3 className="text-lg font-black text-white uppercase italic mb-2">{hmMetric === 'accuracy' ? 'Még nincs célzási adat' : 'Még nincs szektoradat'}</h3>
+                                    <p className="text-slate-400 text-sm font-bold max-w-sm leading-relaxed">{hmMetric === 'accuracy' ? 'Válassz célpontot a meccs PRO vagy TÁBLA bevitelénél, vagy végezz Célpont Vadász edzést. A korábbi találatok célpontja nem ismert.' : 'Játssz PRO vagy TÁBLA bevitelben, vagy végezz Célpont Vadász edzést. A FAST körösszegből nem derül ki, melyik szektort találtad el.'}</p>
                                 </div>
                             ) : (
                                 <>
@@ -682,24 +727,31 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
                                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-start">
                                         <section className="min-w-0 rounded-3xl border border-slate-700/70 bg-[#12141a] p-3 sm:p-5" aria-label="Találatok a darts táblán">
-                                            <HeatmapBoard data={displayHeatmap} filter={hmFilter} selectedSector={activeHeatSector?.key} onSelectSector={setSelectedSector} />
-                                            <div className="mt-4"><HeatmapLegend /></div>
-                                            <p className="mt-3 text-center text-xs text-slate-400">Koppints egy színes szektorra, vagy válassz a listából.</p>
-                                            {activeHeatSector && <div className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3" role="status">
+                                            <HeatmapBoard data={displayHeatmap} filter={hmFilter} metric={hmMetric} accuracy={displayAims} selectedSector={hmMetric === 'hits' ? activeHeatSector?.key : activeAimSector?.target} onSelectSector={setSelectedSector} />
+                                            <div className="mt-4"><HeatmapLegend metric={hmMetric} /></div>
+                                            <p className="mt-3 text-center text-xs text-slate-400">Koppints egy kiemelt szektorra, vagy válassz a listából.</p>
+                                            {hmMetric === 'hits' && activeHeatSector && <div className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3" role="status">
                                                 <p className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Kiválasztott szektor</p>
                                                 <div className="mt-1 flex items-end justify-between gap-3"><strong className="font-mono text-2xl font-black text-white">{activeHeatSector.key}</strong><strong className="text-lg font-black text-cyan-200 tabular-nums">{activeHeatSector.hits} találat</strong></div>
                                                 <p className="mt-1 text-xs text-slate-300">Az összes rögzített szektortalálat {activeHeatSector.sharePct}%-a.</p>
                                             </div>}
-                                            {hmFilter === 'all' && sectorHits(displayHeatmap, 'BULL') > 0 && <p className="mt-3 text-center text-xs text-slate-400">A Célpont Vadász által rögzített általános Bull találatok külön szerepelnek a listában.</p>}
+                                            {hmMetric === 'accuracy' && activeAimSector && <div className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3" role="status">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Célzott szektor</p>
+                                                <div className="mt-1 flex items-end justify-between gap-3"><strong className="font-mono text-2xl font-black text-white">{activeAimSector.target}</strong><strong className="text-lg font-black text-cyan-200 tabular-nums">{Math.round(activeAimSector.hits / activeAimSector.attempts * 100)}%</strong></div>
+                                                <p className="mt-1 text-xs text-slate-300">{activeAimSector.hits} találat / {activeAimSector.attempts} célzott nyíl.</p>
+                                                {Object.entries(activeAimSector.landings).filter(([key]) => key !== activeAimSector.target).sort((a, b) => b[1] - a[1]).slice(0, 3).length > 0 && <p className="mt-2 text-xs text-slate-400">Más helyre érkezett: {Object.entries(activeAimSector.landings).filter(([key]) => key !== activeAimSector.target).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key, count]) => `${key} (${count})`).join(', ')}.</p>}
+                                                {activeAimSector.unlocatedMisses > 0 && <p className="mt-1 text-xs text-slate-400">{activeAimSector.unlocatedMisses} edzésnyílnál a mellédobás helye nem ismert.</p>}
+                                            </div>}
+                                            {hmMetric === 'hits' && hmFilter === 'all' && sectorHits(displayHeatmap, 'BULL') > 0 && <p className="mt-3 text-center text-xs text-slate-400">Az általános Bull találatok külön szerepelnek a listában.</p>}
                                         </section>
 
                                         <section className="min-w-0 rounded-3xl border border-slate-800 bg-[#12141a] p-4 sm:p-5" aria-label="Leggyakoribb találati szektorok">
                                             <div className="grid grid-cols-2 gap-2 mb-5">
-                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">Találat összesen</span><strong className="text-xl font-black text-white tabular-nums">{totalHeatHits}</strong></div>
-                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">Érintett szektor</span><strong className="text-xl font-black text-white tabular-nums">{heatList.length}</strong></div>
+                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">{hmMetric === 'accuracy' ? 'Célzott nyíl' : 'Találat összesen'}</span><strong className="text-xl font-black text-white tabular-nums">{hmMetric === 'accuracy' ? aimList.reduce((sum, item) => sum + item.attempts, 0) : totalHeatHits}</strong></div>
+                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">{hmMetric === 'accuracy' ? 'Mért célpont' : 'Érintett szektor'}</span><strong className="text-xl font-black text-white tabular-nums">{hmMetric === 'accuracy' ? aimList.length : heatList.length}</strong></div>
                                             </div>
-                                            <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-300">Leggyakoribb szektorok</h3>
-                                            {filteredHeatList.length === 0 ? <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-400">Ebben a szűrőben még nincs találat.</p> :
+                                            <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-300">{hmMetric === 'accuracy' ? 'Célpontok' : 'Leggyakoribb szektorok'}</h3>
+                                            {hmMetric === 'accuracy' ? (filteredAimList.length === 0 ? <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-400">Ebben a szűrőben még nincs célzási adat.</p> : <div className="flex flex-col gap-2">{filteredAimList.map(item => <button key={item.target} type="button" onClick={() => setSelectedSector(item.target)} aria-pressed={activeAimSector?.target === item.target} className={`rounded-xl border p-3 text-left transition-colors ${activeAimSector?.target === item.target ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/70 hover:border-slate-600'}`}><span className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-black text-white">{item.target}</span><span className="text-xs font-bold text-slate-300 tabular-nums">{item.hits}/{item.attempts} · {Math.round(item.hits / item.attempts * 100)}%</span></span></button>)}</div>) : filteredHeatList.length === 0 ? <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-400">Ebben a szűrőben még nincs találat.</p> :
                                                 <div className="flex flex-col gap-2">
                                                     {filteredHeatList.slice(0, 10).map(item => <button key={item.key} type="button" onClick={() => setSelectedSector(item.key)} aria-pressed={activeHeatSector?.key === item.key}
                                                         className={`rounded-xl border p-2.5 text-left transition-colors ${activeHeatSector?.key === item.key ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/70 hover:border-slate-600'}`}>
@@ -709,7 +761,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                                 </div>}
                                         </section>
                                     </div>
-                                    <p className="text-xs leading-relaxed text-slate-500">A PRO és TÁBLA bevitel eltalált szektorokat rögzít; a Célpont Vadász külön célponttal dolgozik. A meglévő adatokból pontos célzási arány nem számolható. A FAST bevitel csak körösszeget tárol.</p>
+                                    <p className="text-xs leading-relaxed text-slate-500">A PRO és TÁBLA bevitel célpont kiválasztásakor pontos célzási arányt mér. A Célpont Vadász három nyíl találatszámát rögzíti, a mellédobás helyét nem. A korábbi adatokból célzási arány nem számolható; a FAST bevitel csak körösszeget tárol.</p>
                                 </>
                             )}
                         </div>
