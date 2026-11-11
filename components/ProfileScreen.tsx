@@ -14,7 +14,7 @@ import {
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
 import { matchHistoryCsv, matchTrend, recordedMatchScore, type MatchAnalyticsRow } from '../lib/matchAnalytics';
-import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
+import { HeatmapBoard, HeatmapLegend, heatmapColor } from './HeatmapBoard';
 import { normalizeHeatmapData, sectorHits, sectorType, type HeatmapData, type HeatmapFilter } from '../lib/heatmap';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -704,7 +704,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                                     {filteredHeatList.slice(0, 10).map(item => <button key={item.key} type="button" onClick={() => setSelectedSector(item.key)} aria-pressed={activeHeatSector?.key === item.key}
                                                         className={`rounded-xl border p-2.5 text-left transition-colors ${activeHeatSector?.key === item.key ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/70 hover:border-slate-600'}`}>
                                                         <span className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-black text-white">{item.key}</span><span className="text-xs font-bold text-slate-300 tabular-nums">{item.hits} találat · {item.sharePct}%</span></span>
-                                                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-slate-800"><span className="block h-full rounded-full bg-cyan-400" style={{ width: `${Math.max(5, item.hits / (filteredHeatList[0]?.hits || 1) * 100)}%` }} /></span>
+                                                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-slate-800"><span className="block h-full rounded-full" style={{ width: `${Math.max(5, item.hits / (filteredHeatList[0]?.hits || 1) * 100)}%`, backgroundColor: heatmapColor(item.hits) }} /></span>
                                                     </button>)}
                                                 </div>}
                                         </section>
