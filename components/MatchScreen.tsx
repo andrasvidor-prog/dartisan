@@ -17,6 +17,8 @@ import { publicProfileData } from '../lib/publicProfile';
 import { canCheckoutInDarts, canScoreInDarts, evaluateVisit } from '../lib/x01';
 import { recordQuestMatch } from '../lib/quests';
 import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
+import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
+import { normalizeHeatmapData } from '../lib/heatmap';
 import type { MatchConfig } from './SetupScreen';
 
 export type Dart = { val: number; mult: number };
@@ -101,52 +103,6 @@ const tvDartCoord = (val: number, mult: number, idx: number) => {
     else if (mult === 2) r = 128 + (s % 7);
     else                 r = s % 2 === 0 ? 30 + (s % 45) : 92 + (s % 30);
     return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
-};
-
-const DartboardHeatmap = ({ heatmapData }: { heatmapData: Record<string, { hits: number, throws: number }> }) => {
-    const size = 300;
-    const center = size / 2;
-    const sliceAngle = 360 / 20;
-    let maxHits = 1;
-    Object.values(heatmapData).forEach(data => { if (data.hits > maxHits) maxHits = data.hits; });
-
-    const getHeatColor = (target: string, isBlackOrGreen: boolean, isDoubleOrTreble: boolean) => {
-        const hits = heatmapData[target]?.hits || 0;
-        if (hits === 0) {
-            const baseColor = isBlackOrGreen ? (isDoubleOrTreble ? '#2eac6d' : '#14171f') : (isDoubleOrTreble ? '#e03e3e' : '#e6e8eb');
-            if (target === '25') return '#2eac6d'; 
-            if (target === '50') return '#e03e3e';
-            return baseColor;
-        }
-        const heatRatio = hits / maxHits; 
-        if (heatRatio < 0.2) return '#3b82f6'; // Hideg kék
-        if (heatRatio < 0.4) return '#8b5cf6'; // Lila
-        if (heatRatio < 0.6) return '#f59e0b'; // Sárga/Narancs
-        if (heatRatio < 0.8) return '#ef4444'; // Piros
-        return '#b91c1c'; // Sötétpiros
-    };
-
-    return (
-        <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="drop-shadow-[0_15px_30px_rgba(0,0,0,0.5)]">
-            <circle cx={center} cy={center} r={148} fill="#0d1017" />
-            {DARTBOARD_ORDER.map((num, i) => {
-                const startAngle = i * sliceAngle - (sliceAngle / 2);
-                const endAngle = startAngle + sliceAngle;
-                const isEven = i % 2 === 0;
-                return (
-                    <g key={num}>
-                        <path d={describeArc(center, center, 15, 80, startAngle, endAngle)} fill={getHeatColor(`S${num}`, isEven, false)} stroke="#1e293b" strokeWidth="0.8" />
-                        <path d={describeArc(center, center, 80, 90, startAngle, endAngle)} fill={getHeatColor(`T${num}`, isEven, true)} stroke="#1e293b" strokeWidth="0.8" />
-                        <path d={describeArc(center, center, 90, 125, startAngle, endAngle)} fill={getHeatColor(`S${num}`, isEven, false)} stroke="#1e293b" strokeWidth="0.8" />
-                        <path d={describeArc(center, center, 125, 135, startAngle, endAngle)} fill={getHeatColor(`D${num}`, isEven, true)} stroke="#1e293b" strokeWidth="0.8" />
-                        <text x={polarToCartesian(center, center, 145, startAngle + (sliceAngle / 2)).x} y={polarToCartesian(center, center, 145, startAngle + (sliceAngle / 2)).y} fill="#94a3b8" fontSize="10" fontWeight="900" textAnchor="middle" alignmentBaseline="middle" transform={`rotate(${startAngle + (sliceAngle / 2)} ${polarToCartesian(center, center, 145, startAngle + (sliceAngle / 2)).x} ${polarToCartesian(center, center, 145, startAngle + (sliceAngle / 2)).y})`}>{num}</text>
-                    </g>
-                );
-            })}
-            <circle cx={center} cy={center} r={15} fill={getHeatColor('25', true, false)} stroke="#1e293b" strokeWidth="0.8" />
-            <circle cx={center} cy={center} r={6.35} fill={getHeatColor('50', false, true)} stroke="#1e293b" strokeWidth="0.8" />
-        </svg>
-    );
 };
 
 const InteractiveDartboard = ({
@@ -303,7 +259,7 @@ const t = {
     careerRule3: "If you lose, you can retry this stage anytime.", newRecord: "New Record!",
     dartsLeft: "Darts Left", hunterRules1: "The AI gives you a specific target (e.g., D16, T20).",
     hunterRules2: "Throw 3 darts at the target and record your hits.",
-    hunterRules3: "This builds your AI Heatmap for smart checkout suggestions!",
+    hunterRules3: "Your target hits appear in your personal hit map. This alone does not measure aiming accuracy.",
     mathRules1: "No dartboard needed! You must calculate in your head.",
     mathRules2: "You are given a scenario (e.g., Score: 84, you hit T14).",
     mathRules3: "Type the remaining score as fast as possible. 10 rounds."
@@ -335,7 +291,7 @@ const t = {
     careerRule3: "Ha kikapsz, bármikor újrapróbálhatod ezt a szintet.", newRecord: "Új Rekord!",
     dartsLeft: "Hátralévő Nyíl", hunterRules1: "Az AI ad egy célpontot (pl. D16, T20).",
     hunterRules2: "Dobj rá 3 nyíllal, és rögzítsd, hányszor találtad el.",
-    hunterRules3: "Ebből az AI felépíti a személyes Hőtérképedet, ami alapján később okos kiszállókat javasol!",
+    hunterRules3: "A célponttalálatok megjelennek a személyes találati térképen. Ebből önmagában nem számolható célzási pontosság.",
     mathRules1: "Nincs szükség táblára! Fejben kell számolnod.",
     mathRules2: "Kapsz egy szituációt (pl. 82-ről dobsz egy T14-et).",
     mathRules3: "Írd be a maradék pontot! 10 kérdést kapsz, légy gyors és pontos."
@@ -927,7 +883,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   const recordHeatmapLocal = (val: number, mult: number) => {
       const prefix = mult === 3 ? 'T' : mult === 2 ? 'D' : 'S';
-      const key = `${prefix}${val}`;
+      const key = val === 25 ? (mult === 2 ? '50' : '25') : `${prefix}${val}`;
       setFullHeatmapData(prev => ({ ...prev, [key]: { hits: (prev[key]?.hits || 0) + 1, throws: (prev[key]?.throws || 0) + 1 } }));
   };
 
@@ -1668,7 +1624,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       {isMatchWinner && config.gameMode !== 'practice' && asyncState === 'playing' && (
         <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex flex-col items-center pt-12 px-4 pb-24 overflow-y-auto">
             <div className="fixed inset-0 z-0 opacity-[0.08] pointer-events-none scale-150 transform rotate-[-15deg] flex items-center justify-center">
-                <DartboardHeatmap heatmapData={fullHeatmapData} />
+                <HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} />
             </div>
             
             <TrophyIcon className="h-24 w-24 text-amber-400 mb-3 mt-4 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)] shrink-0 z-10" />
@@ -1743,9 +1699,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               </div>
               
               <div className="w-full flex flex-col items-center justify-center border border-slate-800 rounded-3xl p-4 sm:p-6 bg-slate-950/50">
-                  <h3 className="text-[10px] sm:text-xs font-black text-rose-500 uppercase tracking-[0.3em] mb-4 sm:mb-6 text-center">{lang === 'hu' ? 'Személyes hőtérkép' : 'Personal heatmap'}</h3>
-                  <div className="w-48 h-48 sm:w-64 sm:h-64 relative"><DartboardHeatmap heatmapData={fullHeatmapData} /></div>
-                  <p className="text-[8px] sm:text-[10px] text-slate-600 text-center mt-4 sm:mt-6 font-bold uppercase tracking-wider">{lang === 'hu' ? 'Lila = ritka találat' : 'Purple = fewer hits'} <br/> {lang === 'hu' ? 'Piros = gyakori találat' : 'Red = more hits'}</p>
+                  <h3 className="text-xs font-black text-cyan-300 uppercase tracking-widest mb-4 text-center">{lang === 'hu' ? 'Személyes találati térkép' : 'Personal hit map'}</h3>
+                  <div className="w-full max-w-[360px]"><HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} /></div>
+                  <div className="mt-4"><HeatmapLegend /></div>
+                  <p className="text-xs text-slate-400 text-center mt-3">{lang === 'hu' ? 'A színek a rögzített találatok számát mutatják, nem a célzási pontosságot.' : 'Colors show recorded hit counts, not aiming accuracy.'}</p>
               </div>
             </div>
 

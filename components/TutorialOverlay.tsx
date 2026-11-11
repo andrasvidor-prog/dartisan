@@ -142,7 +142,7 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
             {
                 emoji: '🤖',
                 title: 'AI-vezérelt edzés',
-                body: 'Az AI kiad egy célpontot (pl. D16, T20, BULL). Dobd rá a 3 nyilad, és add meg, hányszor találtad el. Ez feltölti a személyes dobóstatisztikád (Hőtérkép).',
+                body: 'Az alkalmazás kiad egy célpontot (pl. D16, T20, BULL). Dobd rá a 3 nyilad, és add meg, hányszor találtad el. A találatokat a személyes találati térképen láthatod.',
                 tip: 'Minél több adatot gyűjtesz, annál okosabb lesz a kiszálló ajánló!',
             },
             {

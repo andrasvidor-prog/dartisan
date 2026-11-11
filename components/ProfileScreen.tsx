@@ -5,7 +5,7 @@ import {
     TrophyIcon, ArrowLeftIcon, ChartBarIcon, StarIcon, FireIcon,
     ArrowPathIcon, MagnifyingGlassIcon, PencilIcon, UserPlusIcon,
     UsersIcon, CheckCircleIcon, XMarkIcon, ShieldCheckIcon, BoltIcon,
-    CalendarDaysIcon, InformationCircleIcon, ArrowRightOnRectangleIcon
+    CalendarDaysIcon, ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 import { db, auth } from '../firebase';
 import { EmailAuthProvider, linkWithCredential, reload, sendPasswordResetEmail, signOut } from 'firebase/auth';
@@ -14,9 +14,10 @@ import {
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
 import { matchHistoryCsv, matchTrend, recordedMatchScore, type MatchAnalyticsRow } from '../lib/matchAnalytics';
+import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
+import { normalizeHeatmapData, sectorHits, sectorType, type HeatmapData, type HeatmapFilter } from '../lib/heatmap';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const DARTBOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 const PREDEFINED_AVATARS = [
     'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=0b0d11',
     'https://api.dicebear.com/7.x/bottts/svg?seed=Leo&backgroundColor=0b0d11',
@@ -34,31 +35,8 @@ const ACH_COLORS: Record<string, { bg: string; border: string; text: string; ico
     indigo:  { bg: 'bg-indigo-500/10',  border: 'border-indigo-500/30',  text: 'text-indigo-400',  iconBg: 'bg-indigo-500'  },
 };
 
-// ─── SVG helpers ──────────────────────────────────────────────────────────────
-const polarToCartesian = (cx: number, cy: number, r: number, angle: number) => {
-    const a = (angle - 90) * Math.PI / 180;
-    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
-};
-const describeArc = (x: number, y: number, r1: number, r2: number, s: number, e: number) => {
-    const so = polarToCartesian(x, y, r2, e), eo = polarToCartesian(x, y, r2, s);
-    const si = polarToCartesian(x, y, r1, e), ei = polarToCartesian(x, y, r1, s);
-    const f = e - s <= 180 ? '0' : '1';
-    return ['M', so.x, so.y, 'A', r2, r2, 0, f, 0, eo.x, eo.y, 'L', ei.x, ei.y, 'A', r1, r1, 0, f, 1, si.x, si.y, 'Z'].join(' ');
-};
-
-// Heat gradient: dark B&W board → increasingly RED for frequent throws
-const heatColor = (ratio: number) => {
-    if (ratio <= 0) return null;
-    if (ratio < 0.12) return '#450a0a';   // barely dark crimson
-    if (ratio < 0.28) return '#7f1d1d';   // dark red
-    if (ratio < 0.48) return '#b91c1c';   // medium red
-    if (ratio < 0.68) return '#dc2626';   // vivid red
-    if (ratio < 0.85) return '#ef4444';   // bright red
-    return '#f87171';                      // hot pink-red (max)
-};
-
 // ─── Heatmap SVG ──────────────────────────────────────────────────────────────
-type HM = Record<string, { hits: number; throws: number }>;
+type HM = HeatmapData;
 
 type ProfileStats = {
     id: string; name: string; tag: number; xp: number; friends: string[];
@@ -122,62 +100,6 @@ const MatchTrendChart = ({ rows }: { rows: MatchAnalyticsRow[] }) => {
     </section>;
 };
 
-const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' | 'double' | 'treble' }) => {
-    const SIZE = 320; const C = SIZE / 2; const SA = 360 / 20;
-
-    const maxHits = useMemo(() => {
-        let m = 1;
-        Object.entries(data).forEach(([k, v]) => {
-            const type = k.startsWith('T') ? 'treble' : k.startsWith('D') || k === '50' ? 'double' : 'single';
-            if (filter === 'all' || filter === type) m = Math.max(m, v.hits);
-        });
-        return m;
-    }, [data, filter]);
-
-    const getRatio = (key: string) => {
-        const v = data[key];
-        if (!v) return 0;
-        const type = key.startsWith('T') ? 'treble' : key.startsWith('D') || key === '50' ? 'double' : 'single';
-        if (filter !== 'all' && filter !== type) return 0;
-        return v.hits / maxHits;
-    };
-
-    // True black-and-white dartboard base (red/green on multi rings = classic board look)
-    const baseColor = (isEven: boolean, isMulti: boolean) => {
-        if (isMulti) return isEven ? '#e11d48' : '#10b981'; // red / green for double+treble rings
-        return isEven ? '#1a1a1a' : '#d4d4d4';               // near-black / near-white alternating
-    };
-
-    const fill = (key: string, isEven: boolean, isMulti: boolean) => {
-        const r = getRatio(key);
-        return heatColor(r) ?? baseColor(isEven, isMulti);
-    };
-
-    return (
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-w-xs mx-auto drop-shadow-[0_0_30px_rgba(182,85,255,0.15)]">
-            <circle cx={C} cy={C} r={145} fill="#08090c" stroke="#1e293b" strokeWidth="1.5" />
-            {DARTBOARD_ORDER.map((num, i) => {
-                const s = i * SA - SA / 2; const e = s + SA;
-                const isEven = i % 2 === 0;
-                const tp = polarToCartesian(C, C, 150, s + SA / 2);
-                return (
-                    <g key={num}>
-                        <path d={describeArc(C, C, 15, 75, s, e)}  fill={fill(`S${num}`, isEven, false)} stroke="#0b0d11" strokeWidth="0.8" />
-                        <path d={describeArc(C, C, 75, 87, s, e)}  fill={fill(`T${num}`, isEven, true)}  stroke="#0b0d11" strokeWidth="0.8" />
-                        <path d={describeArc(C, C, 87, 125, s, e)} fill={fill(`S${num}`, isEven, false)} stroke="#0b0d11" strokeWidth="0.8" />
-                        <path d={describeArc(C, C, 125, 138, s, e)} fill={fill(`D${num}`, isEven, true)} stroke="#0b0d11" strokeWidth="0.8" />
-                        <text x={tp.x} y={tp.y} fill="#475569" fontSize="11" fontWeight="900" fontFamily="monospace"
-                            textAnchor="middle" dominantBaseline="middle"
-                            transform={`rotate(${s + SA / 2 + 90} ${tp.x} ${tp.y})`}>{num}</text>
-                    </g>
-                );
-            })}
-            <circle cx={C} cy={C} r={15}  fill={fill('25', true,  false)} stroke="#0b0d11" strokeWidth="0.8" />
-            <circle cx={C} cy={C} r={6.5} fill={fill('50', false, true)}  stroke="#0b0d11" strokeWidth="0.8" />
-        </svg>
-    );
-};
-
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const [myStats, setMyStats]         = useState<ProfileStats | null>(null);
@@ -187,8 +109,10 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
     const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
     const [userHeatmap, setUserHeatmap]   = useState<HM | null>(null);
-    const [hmFilter, setHmFilter]         = useState<'all' | 'single' | 'double' | 'treble'>('all');
+    const [hmFilter, setHmFilter]         = useState<HeatmapFilter>('all');
+    const [selectedSector, setSelectedSector] = useState<string | null>(null);
     const [isLoadingHM, setIsLoadingHM]   = useState(true);
+    const [heatmapError, setHeatmapError] = useState(false);
 
     const [activeTab, setActiveTab]     = useState<'profile' | 'history' | 'analytics' | 'social'>('profile');
     const [selectedMatch, setSelectedMatch] = useState<MatchHistory | null>(null);
@@ -369,11 +293,17 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
             doc(db, 'users', user.uid, 'stats', 'heatmaps', 'setups', 'default'),
             (snap) => {
                 setIsLoadingHM(false);
+                setHeatmapError(false);
                 if (snap.exists() && Object.keys(snap.data()).length > 0) {
                     setUserHeatmap(snap.data() as HM);
                 } else {
                     setUserHeatmap(null);
                 }
+            },
+            (error) => {
+                console.error('Heatmap could not be loaded:', error);
+                setIsLoadingHM(false);
+                setHeatmapError(true);
             }
         );
         return () => unsub();
@@ -412,28 +342,19 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     ] : [];
 
     // ── Heatmap derived data ──────────────────────────────────────────────────
+    const displayHeatmap = useMemo(() => normalizeHeatmapData(userHeatmap || {}), [userHeatmap]);
     const heatList = useMemo(() => {
-        if (!userHeatmap) return [];
-        const totalHits = Object.values(userHeatmap).reduce((s, v) => s + v.hits, 0) || 1;
-        return Object.entries(userHeatmap)
-            .filter(([, v]) => v.hits > 0)
-            .map(([key, v]) => {
-                const type = key.startsWith('T') ? 'treble' : (key.startsWith('D') || key === '50') ? 'double' : 'single';
-                const sharePct = Math.round((v.hits / totalHits) * 100);
-                return { key, hits: v.hits, sharePct, type };
-            })
+        const totalHits = Object.keys(displayHeatmap).reduce((sum, key) => sum + sectorHits(displayHeatmap, key), 0) || 1;
+        return Object.keys(displayHeatmap)
+            .map(key => ({ key, hits: sectorHits(displayHeatmap, key), type: sectorType(key) }))
+            .filter(item => item.hits > 0)
+            .map(item => ({ ...item, sharePct: Math.round(item.hits / totalHits * 1000) / 10 }))
             .sort((a, b) => b.hits - a.hits);
-    }, [userHeatmap]);
+    }, [displayHeatmap]);
 
-    const filteredHeatList = useMemo(() =>
-        hmFilter === 'all' ? heatList : heatList.filter(h => h.type === hmFilter),
-        [heatList, hmFilter]
-    );
-
-    const heatInsight = useMemo(() => {
-        if (heatList.length === 0) return null;
-        return { topTarget: heatList[0] };
-    }, [heatList]);
+    const filteredHeatList = useMemo(() => hmFilter === 'all' ? heatList : heatList.filter(item => item.type === hmFilter), [heatList, hmFilter]);
+    const totalHeatHits = heatList.reduce((sum, item) => sum + item.hits, 0);
+    const activeHeatSector = filteredHeatList.find(item => item.key === selectedSector) || filteredHeatList[0] || null;
 
     // ── Social search ─────────────────────────────────────────────────────────
     const handleSearch = async () => {
@@ -501,11 +422,11 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                     ) : <button onClick={handleSignOut} aria-label="Kijelentkezés" title="Kijelentkezés" className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-all"><ArrowRightOnRectangleIcon className="h-5 w-5 text-slate-300" /></button>}
                 </div>
 
-                <div className="max-w-3xl mx-auto pb-20 w-full flex-1">
+                <div className={`${activeTab === 'analytics' ? 'max-w-5xl' : 'max-w-3xl'} mx-auto pb-20 w-full flex-1`}>
                     {profileError && <p role="status" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm font-bold text-amber-200">A felhőben tárolt profiladatok most nem érhetők el. Az alapadatok láthatók; próbáld újra később.</p>}
 
                     {/* Tab nav */}
-                    <div className="flex gap-1.5 mb-8 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 shadow-xl overflow-x-auto">
+                    <div className="flex gap-1.5 mb-8 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 shadow-xl overflow-x-auto max-w-3xl mx-auto w-full">
                         {(['profile', 'history', 'analytics', 'social'] as const).map(t => {
                             const active = activeTab === t;
                             const colorMap = { profile: 'bg-emerald-500 text-slate-950', history: 'bg-indigo-500 text-white', analytics: 'bg-[#b655ff] text-white', social: 'bg-cyan-500 text-slate-950' };
@@ -731,101 +652,64 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
                     {/* ── HŐTÉRKÉP TAB ───────────────────────────────────────────────────── */}
                     {activeTab === 'analytics' && (
-                        <div className="flex flex-col gap-6">
-                            <h2 className="text-lg font-black text-white uppercase italic flex items-center gap-2">
-                                <ChartBarIcon className="h-5 w-5 text-[#b655ff]" /> Személyes Hőtérkép
-                            </h2>
+                        <div className="flex flex-col gap-5">
+                            <div>
+                                <h2 className="text-lg font-black text-white uppercase italic flex items-center gap-2">
+                                    <ChartBarIcon className="h-5 w-5 text-cyan-400" /> Találati térkép
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-400">Hol landoltak a rögzített nyilaid? A színek találatszámot mutatnak, nem célzási pontosságot.</p>
+                            </div>
 
                             {isLoadingHM ? (
                                 <div className="text-center py-16 animate-pulse text-slate-500 text-xs font-black uppercase tracking-widest">Betöltés...</div>
-                            ) : !userHeatmap ? (
-                                <div className="flex flex-col items-center py-16 bg-[#12141a] rounded-[2rem] border border-dashed border-slate-700 text-center px-8">
+                            ) : heatmapError ? (
+                                <div role="alert" className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-100">A találati térkép most nem tölthető be. Ellenőrizd a kapcsolatot, majd nyisd meg újra ezt a fület.</div>
+                            ) : heatList.length === 0 ? (
+                                <div className="flex flex-col items-center py-16 bg-[#12141a] rounded-3xl border border-dashed border-slate-700 text-center px-8">
                                     <ChartBarIcon className="h-16 w-16 text-slate-600 mb-4" />
-                                    <h3 className="text-lg font-black text-white uppercase italic mb-2">Még nincs hőtérkép adat</h3>
-                                    <p className="text-slate-400 text-sm font-bold max-w-xs leading-relaxed">
-                                        Játssz meccseket <span className="text-[#b655ff]">PRO</span> vagy <span className="text-[#b655ff]">TÁBLA</span> módban, vagy futtass le egy <span className="text-rose-400">Célpont Vadász</span> edzést — a nyilaid automatikusan rögzülnek.
-                                    </p>
+                                    <h3 className="text-lg font-black text-white uppercase italic mb-2">Még nincs szektoradat</h3>
+                                    <p className="text-slate-400 text-sm font-bold max-w-sm leading-relaxed">Játssz PRO vagy TÁBLA bevitelben, vagy végezz Célpont Vadász edzést. A FAST körösszegből nem derül ki, melyik szektort találtad el.</p>
                                 </div>
                             ) : (
                                 <>
-                                    {/* Filter */}
-                                    <div className="flex gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
-                                        {(['all', 'single', 'double', 'treble'] as const).map(f => {
-                                            const labels = { all: 'Mind', single: 'Single', double: 'Double', treble: 'Triple' };
-                                            const colors = { all: 'bg-slate-600', single: 'bg-slate-500', double: 'bg-emerald-500', treble: 'bg-rose-500' };
-                                            return (
-                                                <button key={f} onClick={() => setHmFilter(f)}
-                                                    className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${hmFilter === f ? `${colors[f]} text-white` : 'text-slate-500 hover:text-white'}`}>
-                                                    {labels[f]}
-                                                </button>
-                                            );
+                                    <div className="flex gap-1.5 rounded-xl border border-slate-800 bg-slate-900 p-1.5" role="group" aria-label="Szektorszűrő">
+                                        {(['all', 'single', 'double', 'treble'] as const).map(filter => {
+                                            const labels = { all: 'Mind', single: 'Sima', double: 'Dupla', treble: 'Tripla' };
+                                            return <button key={filter} type="button" onClick={() => setHmFilter(filter)} aria-pressed={hmFilter === filter}
+                                                className={`min-w-0 flex-1 rounded-lg px-1 py-2.5 text-[10px] sm:text-xs font-black uppercase transition-colors ${hmFilter === filter ? 'bg-cyan-400 text-slate-950' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>{labels[filter]}</button>;
                                         })}
                                     </div>
 
-                                    {/* Dartboard */}
-                                    <div className="bg-[#12141a] rounded-[2rem] border border-[#b655ff]/20 p-6">
-                                        <ProfileHeatmap data={userHeatmap} filter={hmFilter} />
+                                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-start">
+                                        <section className="min-w-0 rounded-3xl border border-slate-700/70 bg-[#12141a] p-3 sm:p-5" aria-label="Találatok a darts táblán">
+                                            <HeatmapBoard data={displayHeatmap} filter={hmFilter} selectedSector={activeHeatSector?.key} onSelectSector={setSelectedSector} />
+                                            <div className="mt-4"><HeatmapLegend /></div>
+                                            <p className="mt-3 text-center text-xs text-slate-400">Koppints egy színes szektorra, vagy válassz a listából.</p>
+                                            {activeHeatSector && <div className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3" role="status">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Kiválasztott szektor</p>
+                                                <div className="mt-1 flex items-end justify-between gap-3"><strong className="font-mono text-2xl font-black text-white">{activeHeatSector.key}</strong><strong className="text-lg font-black text-cyan-200 tabular-nums">{activeHeatSector.hits} találat</strong></div>
+                                                <p className="mt-1 text-xs text-slate-300">Az összes rögzített szektortalálat {activeHeatSector.sharePct}%-a.</p>
+                                            </div>}
+                                            {hmFilter === 'all' && sectorHits(displayHeatmap, 'BULL') > 0 && <p className="mt-3 text-center text-xs text-slate-400">A Célpont Vadász által rögzített általános Bull találatok külön szerepelnek a listában.</p>}
+                                        </section>
 
-                                        {/* Legend */}
-                                        <div className="flex items-center gap-3 mt-5 px-4">
-                                            <span className="text-[9px] text-slate-500 font-bold uppercase shrink-0">Kevés találat</span>
-                                            <div className="flex-1 h-3 rounded-full" style={{ background: 'linear-gradient(to right, #450a0a, #7f1d1d, #b91c1c, #dc2626, #ef4444, #f87171)' }} />
-                                            <span className="text-[9px] text-rose-400 font-bold uppercase shrink-0">🔥 Legtöbb</span>
-                                        </div>
-                                        <p className="text-center text-[9px] text-slate-600 font-bold mt-2 uppercase tracking-widest">
-                                            Minél pirosabb → annál több találatot rögzítettél a szektorban
-                                        </p>
-                                    </div>
-
-                                    {/* Top targets list */}
-                                    <div className="bg-[#12141a] rounded-[2rem] border border-slate-800 p-6">
-                                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <FireIcon className="h-4 w-4 text-rose-500" />
-                                            {hmFilter === 'all' ? 'Top 10 eltalált szektor' : `Top ${hmFilter === 'double' ? 'Dupla' : hmFilter === 'treble' ? 'Tripla' : 'Single'} szektorok`}
-                                        </h3>
-
-                                        {filteredHeatList.length === 0 ? (
-                                            <p className="text-slate-500 text-xs font-bold text-center py-4">Nincs adat ebben a szűrőben.</p>
-                                        ) : (
-                                            <div className="flex flex-col gap-2">
-                                                {filteredHeatList.slice(0, 10).map((h, i) => {
-                                                    const maxHits = filteredHeatList[0]?.hits || 1;
-                                                    const barPct = Math.round((h.hits / maxHits) * 100);
-                                                    const typeColor = h.type === 'treble' ? 'bg-rose-500' : h.type === 'double' ? 'bg-emerald-500' : 'bg-slate-500';
-                                                    const typeText  = h.type === 'treble' ? 'text-rose-400' : h.type === 'double' ? 'text-emerald-400' : 'text-slate-400';
-                                                    return (
-                                                        <div key={h.key} className="flex items-center gap-3">
-                                                            <span className={`text-xs font-black w-4 text-right ${i === 0 ? 'text-amber-400' : 'text-slate-500'}`}>{i + 1}.</span>
-                                                            <span className={`text-sm font-black font-mono w-10 shrink-0 ${typeText}`}>{h.key}</span>
-                                                            <div className="flex-1 h-5 bg-slate-900 rounded-full overflow-hidden relative">
-                                                                <div className={`h-full rounded-full ${typeColor} opacity-70 transition-all`} style={{ width: `${barPct}%` }} />
-                                                                <span className="absolute inset-0 flex items-center justify-end pr-2 text-[9px] font-black text-white">
-                                                                    {h.hits} db
-                                                                </span>
-                                                            </div>
-                                                            <div className="text-right w-16 shrink-0">
-                                                                <span className="text-xs font-black text-white">{h.sharePct}%</span>
-                                                                <span className="text-[9px] text-slate-500 font-bold block">találatból</span>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
+                                        <section className="min-w-0 rounded-3xl border border-slate-800 bg-[#12141a] p-4 sm:p-5" aria-label="Leggyakoribb találati szektorok">
+                                            <div className="grid grid-cols-2 gap-2 mb-5">
+                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">Találat összesen</span><strong className="text-xl font-black text-white tabular-nums">{totalHeatHits}</strong></div>
+                                                <div className="rounded-xl bg-slate-900 p-3"><span className="block text-[10px] font-bold uppercase text-slate-400">Érintett szektor</span><strong className="text-xl font-black text-white tabular-nums">{heatList.length}</strong></div>
                                             </div>
-                                        )}
+                                            <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-300">Leggyakoribb szektorok</h3>
+                                            {filteredHeatList.length === 0 ? <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-400">Ebben a szűrőben még nincs találat.</p> :
+                                                <div className="flex flex-col gap-2">
+                                                    {filteredHeatList.slice(0, 10).map(item => <button key={item.key} type="button" onClick={() => setSelectedSector(item.key)} aria-pressed={activeHeatSector?.key === item.key}
+                                                        className={`rounded-xl border p-2.5 text-left transition-colors ${activeHeatSector?.key === item.key ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/70 hover:border-slate-600'}`}>
+                                                        <span className="flex items-center justify-between gap-2"><span className="font-mono text-sm font-black text-white">{item.key}</span><span className="text-xs font-bold text-slate-300 tabular-nums">{item.hits} találat · {item.sharePct}%</span></span>
+                                                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-slate-800"><span className="block h-full rounded-full bg-cyan-400" style={{ width: `${Math.max(5, item.hits / (filteredHeatList[0]?.hits || 1) * 100)}%` }} /></span>
+                                                    </button>)}
+                                                </div>}
+                                        </section>
                                     </div>
-
-                                    {/* AI insight */}
-                                    {heatInsight && (
-                                        <div className="bg-[#b655ff]/10 border border-[#b655ff]/30 rounded-[2rem] p-6">
-                                            <h3 className="text-xs font-black text-[#b655ff] uppercase tracking-widest mb-3 flex items-center gap-2">
-                                                <InformationCircleIcon className="h-4 w-4" /> Személyre szabott javaslat
-                                            </h3>
-                                            <ul className="flex flex-col gap-2 text-sm text-slate-300 font-bold">
-                                                <li>🎯 Legtöbbször eltalált szektored: <span className="text-white">{heatInsight.topTarget.key}</span> ({heatInsight.topTarget.hits} találat, az összes rögzített találat {heatInsight.topTarget.sharePct}%-a).</li>
-                                                <li>A célzási pontosság méréséhez a célzott szektort is rögzíteni kell.</li>
-                                            </ul>
-                                        </div>
-                                    )}
+                                    <p className="text-xs leading-relaxed text-slate-500">A PRO és TÁBLA bevitel eltalált szektorokat rögzít; a Célpont Vadász külön célponttal dolgozik. A meglévő adatokból pontos célzási arány nem számolható. A FAST bevitel csak körösszeget tárol.</p>
                                 </>
                             )}
                         </div>
