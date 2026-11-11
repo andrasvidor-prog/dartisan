@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchHistoryCsv, matchTrend } from '../lib/matchAnalytics.ts';
+import { matchHistoryCsv, matchTrend, recordedMatchScore } from '../lib/matchAnalytics.ts';
 
 const row = (average, first9Average, opponent = 'Rival') => ({
   date: '2026-11-06T12:00:00.000Z', mode: 'local', opponent, won: true, score: '3 - 1',
@@ -20,4 +20,10 @@ test('CSV includes match metrics and neutralizes spreadsheet formulas in names',
   assert.ok(csv.startsWith('\uFEFFdate,mode'));
   assert.match(csv, /"'=HYPERLINK\(""bad""\)"/);
   assert.match(csv, /"60","70","25"/);
+});
+
+test('legacy reset leg scores are not shown as a drawn darts match', () => {
+  assert.equal(recordedMatchScore('0 - 0'), '—');
+  assert.equal(recordedMatchScore('0-0'), '—');
+  assert.equal(recordedMatchScore('1 - 0'), '1 - 0');
 });

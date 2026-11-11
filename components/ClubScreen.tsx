@@ -46,6 +46,7 @@ const txt = {
         membersTitle: "Club Members",
         joinConfirm: (name: string) => `Join "${name}"?`,
         notLoggedIn: "Sign in to view and join clubs.",
+        signInTitle: "Sign in to explore clubs",
         owner: "Founder",
         xp: "XP",
         you: "you",
@@ -74,6 +75,7 @@ const txt = {
         membersTitle: "Tagok",
         joinConfirm: (name: string) => `Csatlakozás: "${name}"?`,
         notLoggedIn: "Jelentkezz be a klubok megtekintéséhez.",
+        signInTitle: "Jelentkezz be a klubokhoz",
         owner: "Alapító",
         xp: "XP",
         you: "te",
@@ -252,7 +254,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
     // ─── Not logged in guard ──────────────────────────────────────────────────
     if (!currentUser) {
         return (
-            <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 py-6 sm:py-9">
+            <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 pt-[calc(1rem+var(--app-safe-top))] pb-16">
                 <div className="max-w-6xl mx-auto">
                     <header className="flex items-center gap-4 mb-7 sm:mb-9">
                         <button onClick={onBack} aria-label={t.back} className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
@@ -260,7 +262,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
                     </header>
                     <div className="max-w-2xl rounded-3xl border border-cyan-500/25 bg-gradient-to-br from-cyan-500/15 via-[#151a23] to-[#101216] p-6 sm:p-8">
                         <ShieldCheckIcon className="h-12 w-12 text-cyan-300 mb-5" />
-                        <h2 className="text-xl sm:text-2xl font-black text-white uppercase mb-2">{t.noClubTitle}</h2>
+                        <h2 className="text-xl sm:text-2xl font-black text-white uppercase mb-2">{t.signInTitle}</h2>
                         <p className="text-sm text-slate-300 mb-6">{t.notLoggedIn}</p>
                         <button onClick={onBack} className="h-11 px-5 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase hover:bg-cyan-400 transition-colors">{t.back}</button>
                     </div>
@@ -283,6 +285,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={onBack}
+                        aria-label={t.back}
                         className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition-all"
                     >
                         <XMarkIcon className="h-6 w-6" />

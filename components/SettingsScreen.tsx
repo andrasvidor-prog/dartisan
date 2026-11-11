@@ -140,8 +140,8 @@ const LABELS = {
     },
 };
 
-const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
-    <button onClick={() => onChange(!value)}
+const Toggle = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) => (
+    <button type="button" role="switch" aria-checked={value} aria-label={label} onClick={() => onChange(!value)}
         className={`w-12 h-6 rounded-full p-1 transition-all duration-300 shrink-0 ${value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
         <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-300 ${value ? 'translate-x-6' : 'translate-x-0'}`}/>
     </button>
@@ -425,10 +425,10 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                     {/* Haptic */}
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
                         <h2 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-3">
-                            <DevicePhoneMobileIcon className="h-4 w-4"/> Eszköz
+                            <DevicePhoneMobileIcon className="h-4 w-4"/> {lang === 'hu' ? 'Eszköz' : 'Device'}
                         </h2>
                         <Row label={txt.haptic} desc={txt.hapticDesc} icon={<DevicePhoneMobileIcon className="h-5 w-5"/>}>
-                            <Toggle value={haptic} onChange={v=>{setHaptic(v);localStorage.setItem('dartisan_haptic',String(v));}}/>
+                            <Toggle label={txt.haptic} value={haptic} onChange={v=>{setHaptic(v);localStorage.setItem('dartisan_haptic',String(v));}}/>
                         </Row>
                     </div>
                     </>
@@ -532,13 +532,13 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                         </h2>
                         <Row label={txt.soundMaster} desc={txt.soundMasterDesc}
                             icon={soundMaster?<SpeakerWaveIcon className="h-5 w-5 text-emerald-400"/>:<SpeakerXMarkIcon className="h-5 w-5 text-rose-500"/>}>
-                            <Toggle value={soundMaster} onChange={v=>{setSoundMaster(v);localStorage.setItem('dartisan_sound_master',String(v));}}/>
+                            <Toggle label={txt.soundMaster} value={soundMaster} onChange={v=>{setSoundMaster(v);localStorage.setItem('dartisan_sound_master',String(v));}}/>
                         </Row>
                         <Row label={txt.sound180} desc={txt.sound180Desc} icon={<BoltIcon className="h-5 w-5"/>}>
-                            <Toggle value={sound180} onChange={v=>{setSound180(v);localStorage.setItem('dartisan_sound_180',String(v));}}/>
+                            <Toggle label={txt.sound180} value={sound180} onChange={v=>{setSound180(v);localStorage.setItem('dartisan_sound_180',String(v));}}/>
                         </Row>
                         <Row label={txt.soundWin} desc={txt.soundWinDesc} icon={<CheckCircleIcon className="h-5 w-5"/>}>
-                            <Toggle value={soundWin} onChange={v=>{setSoundWin(v);localStorage.setItem('dartisan_sound_legwin',String(v));}}/>
+                            <Toggle label={txt.soundWin} value={soundWin} onChange={v=>{setSoundWin(v);localStorage.setItem('dartisan_sound_legwin',String(v));}}/>
                         </Row>
                         <div className="mt-4 pt-4 border-t border-slate-800">
                             <p className="text-[10px] font-bold text-slate-600 text-center">

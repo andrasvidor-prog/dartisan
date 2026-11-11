@@ -13,6 +13,12 @@ export type MatchAnalyticsRow = {
   count180: number;
 };
 
+export function recordedMatchScore(score: string | undefined): string {
+  const value = score?.trim();
+  // Older matches stored the reset leg counters after a set ended.
+  return value && !/^0\s*-\s*0$/.test(value) ? value : '—';
+}
+
 export function matchTrend(rows: MatchAnalyticsRow[]) {
   const valid = rows.filter(row => row.average !== null && Number.isFinite(row.average)).slice(0, 20).reverse();
   const averages = valid.map(row => row.average as number);

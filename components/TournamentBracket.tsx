@@ -352,7 +352,7 @@ export function TournamentBracket({ config, liveMatchResult, onBack, onPlayMatch
                 <>
                 {numRounds > 1 && <p className="sm:hidden shrink-0 px-4 py-2 text-center text-xs font-bold text-slate-400 border-b border-slate-800">← Húzd oldalra a további körökhöz →</p>}
                 <div className="flex-1 min-h-0 overflow-auto overscroll-contain custom-scrollbar p-4 sm:p-8 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/40 via-[#0b0d11] to-[#0b0d11]">
-                    <div className="min-h-full w-max min-w-full flex items-center justify-center">
+                    <div className="min-h-full w-max min-w-full flex items-start justify-center">
                     <div className="flex items-stretch gap-4 sm:gap-8">
                     {Array.from({ length: numRounds }, (_, i) => i).map((round) => (
                         <div key={round} className="flex flex-col shrink-0 w-64 gap-4">

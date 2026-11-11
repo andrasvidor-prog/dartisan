@@ -120,8 +120,8 @@ interface SetupScreenProps {
 
 export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, onOpenCoach, onOpenTrainingLab, onStartTournament, onOpenSettings, onOpenClub, userLevel = 1, userStreak = 1 }: SetupScreenProps) {
   const [tab, setTab] = useState<'x01' | 'challenge' | 'practice' | 'career' | 'cricket' | 'leagues'>(initialTab);
-  const [players, setPlayers] = useState<PlayerConfig[]>([{ name: 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
-  const [cricketGuestName, setCricketGuestName] = useState('Játékos 2');
+  const [players, setPlayers] = useState<PlayerConfig[]>([{ name: lang === 'hu' ? 'Játékos 1' : 'Player 1', isBot: false, difficulty: 5, color: 'emerald' }]);
+  const [cricketGuestName, setCricketGuestName] = useState(lang === 'hu' ? 'Játékos 2' : 'Player 2');
   const [cricketVariant, setCricketVariant] = useState<'standard' | 'cutthroat'>('standard');
   const [score, setScore] = useState(501);
   const [sets, setSets] = useState(1);
@@ -607,7 +607,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                         <input type="email" autoComplete="email" placeholder="Email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors" />
                         <div className="relative">
                             <input type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder={txt.password} value={passwordInput} onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} onKeyDown={(e) => e.key === 'Enter' && handleEmailLogin()} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors pr-12" />
-                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-4 text-slate-500 hover:text-white">
+                            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? (lang === 'hu' ? 'Jelszó elrejtése' : 'Hide password') : (lang === 'hu' ? 'Jelszó megjelenítése' : 'Show password')} className="absolute right-4 top-4 text-slate-500 hover:text-white">
                                 {showPassword ? <EyeSlashIcon className="h-6 w-6" /> : <EyeIcon className="h-6 w-6" />}
                             </button>
                         </div>
@@ -769,7 +769,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
             {onOpenCoach && (
                 <button onClick={onOpenCoach} className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border bg-[#12141a] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 shadow-[0_0_10px_rgba(6,182,212,0.15)] flex items-center justify-center">
-                    AI Edző
+                    {lang === 'hu' ? 'AI Edző' : 'AI Coach'}
                 </button>
             )}
           </div>
@@ -1006,7 +1006,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                     <div className="bg-[#0b0d11] border border-[#b655ff]/30 p-6 rounded-3xl relative overflow-hidden text-left shadow-[0_0_20px_rgba(182,85,255,0.05)]">
                         <div className="absolute top-0 right-0 p-4 opacity-[0.03]"><ComputerDesktopIcon className="h-32 w-32 text-white" /></div>
                         <h3 className="text-3xl font-black text-white italic uppercase relative z-10">{lang === 'en' ? CAREER_BOTS[careerStage].nameEn : CAREER_BOTS[careerStage].nameHu}</h3>
-                        <p className="text-[10px] font-bold text-[#b655ff] uppercase tracking-widest mt-1 mb-6 relative z-10">Szint: {CAREER_BOTS[careerStage].difficulty} (Átlag: {CAREER_BOTS[careerStage].avg})</p>
+                        <p className="text-[10px] font-bold text-[#b655ff] uppercase tracking-widest mt-1 mb-6 relative z-10">{lang === 'hu' ? 'Szint' : 'Level'}: {CAREER_BOTS[careerStage].difficulty} ({lang === 'hu' ? 'Átlag' : 'Average'}: {CAREER_BOTS[careerStage].avg})</p>
                         <ul className="text-xs text-slate-300 font-bold relative z-10 flex flex-col gap-3">
                             <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? '15 egymást követő ellenfél.' : 'Fifteen opponents in sequence.'}</span></li>
                             <li className="flex gap-3 items-start"><CheckCircleIcon className="h-5 w-5 text-[#b655ff] shrink-0 opacity-80"/> <span>{lang === 'hu' ? 'Játssz le egy 501-es mérkőzést a gép ellen. Ha nyersz, továbbjutsz.' : 'Play a 501 match against the bot. Win to advance.'}</span></li>
@@ -1051,8 +1051,8 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                     <h3 className="text-2xl font-black text-white italic uppercase mb-2">{cricketVariant === 'cutthroat' ? 'Cut-throat Cricket' : 'Cricket'}</h3>
                     <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-4">{cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'Az ellenfelek gyűjtik a pontot; a legalacsonyabb nyer.' : 'Opponents receive points; the lowest score wins.') : (lang === 'hu' ? 'A legelterjedtebb pub darts játékmód' : 'The classic pub darts game')}</p>
                     <ul className="text-xs text-slate-300 font-bold flex flex-col gap-2">
-                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> Célpontok: 15-20 és Bull</li>
-                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> 3 találat = szektorzárás</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {lang === 'hu' ? 'Célpontok: 15–20 és Bull' : 'Targets: 15–20 and Bull'}</li>
+                        <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {lang === 'hu' ? '3 találat = szektorzárás' : '3 marks close a target'}</li>
                             <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'A zárt szektor többletpontját a még nyitott ellenfelek kapják.' : 'Opponents who have not closed the target receive overflow points.') : (lang === 'hu' ? 'Zárt szektorra dobva pontot kapsz (ha az ellenfél még nem zárta).' : 'Score on a closed target until your opponent closes it.')}</li>
                         <li className="flex gap-2 items-start"><span className="text-emerald-400 shrink-0">✓</span> {cricketVariant === 'cutthroat' ? (lang === 'hu' ? 'Győz, aki minden szektort lezárt, és a legkevesebb pontja van.' : 'Close all targets and have the lowest score to win.') : (lang === 'hu' ? 'Győz, aki minden szektort lezárt, és vezet pontban.' : 'Close all targets and have the highest score to win.')}</li>
                     </ul>
@@ -1069,12 +1069,12 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                 </div>
                 <button
                     onClick={() => onStart({ gameMode: 'cricket', cricketVariant, players: [
-                        { ...players[0], name: players[0].name.trim() || 'Player 1', isBot: false },
-                        players[1] ? { ...players[1], name: players[1].name.trim() || 'Játékos 2', isBot: false } : { name: cricketGuestName.trim() || 'Játékos 2', color: 'rose', isBot: false, difficulty: 5 }
+                        { ...players[0], name: players[0].name.trim() || (lang === 'hu' ? 'Játékos 1' : 'Player 1'), isBot: false },
+                        players[1] ? { ...players[1], name: players[1].name.trim() || (lang === 'hu' ? 'Játékos 2' : 'Player 2'), isBot: false } : { name: cricketGuestName.trim() || (lang === 'hu' ? 'Játékos 2' : 'Player 2'), color: 'rose', isBot: false, difficulty: 5 }
                     ], startingScore: 0, setsToWin: 1, legsToWin: 1, checkIn: 'single', checkout: 'single', muteCaller })}
                     className="w-full h-16 rounded-2xl bg-emerald-500 text-slate-950 text-xl font-black uppercase tracking-widest active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] mt-2"
                 >
-                    Cricket Indítása
+                    {lang === 'hu' ? 'Cricket Indítása' : 'Start Cricket'}
                 </button>
             </div>
         )}

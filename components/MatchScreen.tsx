@@ -739,9 +739,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                   setDoc(matchRef, {
                       date: new Date().toISOString(),
                       mode: config.gameMode,
-                      opponent: players[1]?.name || 'Unknown',
+                      opponent: players.slice(1).map(player => player.name).join(', ') || 'Unknown',
                       won: isWin,
-                      score: `${p.legsWon} - ${players[1]?.legsWon || 0}`, 
+                      score: `${p.setsWon} - ${Math.max(0, ...players.slice(1).map(player => player.setsWon))}`,
                       stats: {
                           average: ((p.totalPoints / (p.totalDarts || 1)) * 3),
                           first9Average: ((p.first9Points / (p.first9Darts || 1)) * 3),
@@ -1671,7 +1671,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 <button onClick={handleExit} className="min-h-12 rounded-xl bg-slate-800 text-white text-xs sm:text-sm font-black uppercase hover:bg-slate-700">{txt.back}</button>
                 {isAsync && role === 'host' && fbSyncData?.state?.winner && <button onClick={handleDeleteCompletedRoom} className="min-h-12 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs sm:text-sm font-black uppercase hover:bg-rose-500/25">{lang === 'hu' ? 'Szoba törlése' : 'Delete room'}</button>}
                 {config.tournamentId || config.gameMode === 'career' ? (
-                    <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className="min-h-12 rounded-xl bg-[#b655ff] text-white text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2">Következő <ForwardIcon className="h-4 w-4" /></button>
+                    <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className="min-h-12 rounded-xl bg-[#b655ff] text-white text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2">{lang === 'hu' ? 'Következő' : 'Next'} <ForwardIcon className="h-4 w-4" /></button>
                 ) : (
                     <>
                         {onRematch && !isAsync && <button onClick={onRematch} className="min-h-12 rounded-xl bg-emerald-500 text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2"><ArrowPathIcon className="h-4 w-4" /> Újrajátszás</button>}
@@ -1691,7 +1691,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                                 {pl.teamId !== undefined && <span className="text-[10px] bg-slate-700 text-white px-2 py-1 rounded-md mr-2 align-middle">T{pl.teamId + 1}</span>}
                                 {pl.name}
                             </span>
-                            <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest truncate">Első 9 darts: {((pl.first9Points/(pl.first9Darts||1))*3).toFixed(1)}</span>
+                            <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest truncate">{lang === 'hu' ? 'Első 9 nyíl' : 'First 9 darts'}: {((pl.first9Points/(pl.first9Darts||1))*3).toFixed(1)}</span>
                         </div>
                         <div className="text-right shrink-0">
                            <span className="text-4xl sm:text-5xl font-mono font-black text-white leading-none">{((pl.totalPoints/(pl.totalDarts||1))*3).toFixed(1)}</span>
@@ -1701,16 +1701,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                      
                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 text-center">
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-center">
-                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">Kiszálló %</span>
+                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">{lang === 'hu' ? 'Kiszálló %' : 'Checkout %'}</span>
                              <span className="text-lg sm:text-xl font-mono font-black text-white">{pl.checkoutAttempts > 0 ? Math.round((pl.checkoutSuccess / pl.checkoutAttempts) * 100) : 0}%</span>
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-center">
-                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">Max Kiszálló</span>
+                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">{lang === 'hu' ? 'Max kiszálló' : 'Highest checkout'}</span>
                              <span className="text-lg sm:text-xl font-mono font-black text-amber-400">{pl.highestCheckout > 0 ? pl.highestCheckout : '-'}</span>
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-center">
-                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">Legjobb Leg</span>
-                             <span className="text-lg sm:text-xl font-mono font-black text-cyan-400">{(pl.bestLegDarts || 0) > 0 ? `${pl.bestLegDarts} nyil` : '-'}</span>
+                             <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">{lang === 'hu' ? 'Legjobb leg' : 'Best leg'}</span>
+                             <span className="text-lg sm:text-xl font-mono font-black text-cyan-400">{(pl.bestLegDarts || 0) > 0 ? `${pl.bestLegDarts} ${lang === 'hu' ? 'nyíl' : 'darts'}` : '-'}</span>
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2">
                              <span className="text-lg sm:text-xl font-mono font-black text-rose-500">{pl.count180}</span>
@@ -1731,9 +1731,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               </div>
               
               <div className="w-full flex flex-col items-center justify-center border border-slate-800 rounded-3xl p-4 sm:p-6 bg-slate-950/50">
-                  <h3 className="text-[10px] sm:text-xs font-black text-rose-500 uppercase tracking-[0.3em] mb-4 sm:mb-6 text-center">Személyes Hőtérkép</h3>
+                  <h3 className="text-[10px] sm:text-xs font-black text-rose-500 uppercase tracking-[0.3em] mb-4 sm:mb-6 text-center">{lang === 'hu' ? 'Személyes hőtérkép' : 'Personal heatmap'}</h3>
                   <div className="w-48 h-48 sm:w-64 sm:h-64 relative"><DartboardHeatmap heatmapData={fullHeatmapData} /></div>
-                  <p className="text-[8px] sm:text-[10px] text-slate-600 text-center mt-4 sm:mt-6 font-bold uppercase tracking-wider">Lila = Ritka találat <br/> Piros = Gyakori találat</p>
+                  <p className="text-[8px] sm:text-[10px] text-slate-600 text-center mt-4 sm:mt-6 font-bold uppercase tracking-wider">{lang === 'hu' ? 'Lila = ritka találat' : 'Purple = fewer hits'} <br/> {lang === 'hu' ? 'Piros = gyakori találat' : 'Red = more hits'}</p>
               </div>
             </div>
 

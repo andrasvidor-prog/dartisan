@@ -13,7 +13,7 @@ import {
     doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
     updateDoc, arrayUnion, orderBy, getDoc, setDoc
 } from 'firebase/firestore';
-import { matchHistoryCsv, matchTrend, type MatchAnalyticsRow } from '../lib/matchAnalytics';
+import { matchHistoryCsv, matchTrend, recordedMatchScore, type MatchAnalyticsRow } from '../lib/matchAnalytics';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DARTBOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
@@ -125,11 +125,11 @@ const MatchTrendChart = ({ rows }: { rows: MatchAnalyticsRow[] }) => {
 const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' | 'double' | 'treble' }) => {
     const SIZE = 320; const C = SIZE / 2; const SA = 360 / 20;
 
-    const maxThrows = useMemo(() => {
+    const maxHits = useMemo(() => {
         let m = 1;
         Object.entries(data).forEach(([k, v]) => {
             const type = k.startsWith('T') ? 'treble' : k.startsWith('D') || k === '50' ? 'double' : 'single';
-            if (filter === 'all' || filter === type) m = Math.max(m, v.throws);
+            if (filter === 'all' || filter === type) m = Math.max(m, v.hits);
         });
         return m;
     }, [data, filter]);
@@ -139,7 +139,7 @@ const ProfileHeatmap = ({ data, filter }: { data: HM; filter: 'all' | 'single' |
         if (!v) return 0;
         const type = key.startsWith('T') ? 'treble' : key.startsWith('D') || key === '50' ? 'double' : 'single';
         if (filter !== 'all' && filter !== type) return 0;
-        return v.throws / maxThrows;
+        return v.hits / maxHits;
     };
 
     // True black-and-white dartboard base (red/green on multi rings = classic board look)
@@ -194,7 +194,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     const [selectedMatch, setSelectedMatch] = useState<MatchHistory | null>(null);
     const matchRows = useMemo<MatchAnalyticsRow[]>(() => matchHistory.map(m => ({
         date: matchDate(m.date).toISOString(), mode: m.mode || '', opponent: m.opponent || '',
-        won: !!m.won, score: m.score || '', average: typeof m.stats?.average === 'number' ? m.stats.average : null,
+        won: !!m.won, score: recordedMatchScore(m.score), average: typeof m.stats?.average === 'number' ? m.stats.average : null,
         first9Average: typeof m.stats?.first9Average === 'number' ? m.stats.first9Average : null,
         checkoutPct: typeof m.stats?.checkoutPct === 'number' ? Math.round(m.stats.checkoutPct * 1000) / 10 : null,
         bestLegDarts: typeof m.stats?.bestLegDarts === 'number' ? m.stats.bestLegDarts : null,
@@ -414,16 +414,15 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     // ── Heatmap derived data ──────────────────────────────────────────────────
     const heatList = useMemo(() => {
         if (!userHeatmap) return [];
-        const totalThrows = Object.values(userHeatmap).reduce((s, v) => s + v.throws, 0) || 1;
+        const totalHits = Object.values(userHeatmap).reduce((s, v) => s + v.hits, 0) || 1;
         return Object.entries(userHeatmap)
-            .filter(([_, v]) => v.throws > 0)
+            .filter(([, v]) => v.hits > 0)
             .map(([key, v]) => {
                 const type = key.startsWith('T') ? 'treble' : (key.startsWith('D') || key === '50') ? 'double' : 'single';
-                const accuracy = Math.round((v.hits / v.throws) * 100);
-                const sharePct = Math.round((v.throws / totalThrows) * 100);
-                return { key, throws: v.throws, hits: v.hits, accuracy, sharePct, type };
+                const sharePct = Math.round((v.hits / totalHits) * 100);
+                return { key, hits: v.hits, sharePct, type };
             })
-            .sort((a, b) => b.throws - a.throws);
+            .sort((a, b) => b.hits - a.hits);
     }, [userHeatmap]);
 
     const filteredHeatList = useMemo(() =>
@@ -433,10 +432,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
     const heatInsight = useMemo(() => {
         if (heatList.length === 0) return null;
-        const topTarget  = heatList[0];
-        const worstDouble = heatList.filter(h => h.type === 'double' && h.throws >= 5).sort((a, b) => a.accuracy - b.accuracy)[0];
-        const bestDouble  = heatList.filter(h => h.type === 'double' && h.throws >= 5).sort((a, b) => b.accuracy - a.accuracy)[0];
-        return { topTarget, worstDouble, bestDouble };
+        return { topTarget: heatList[0] };
     }, [heatList]);
 
     // ── Social search ─────────────────────────────────────────────────────────
@@ -721,7 +717,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                         </span>
                                         <span className="text-white font-black uppercase italic text-base block truncate">vs {m.opponent}</span>
                                         <span className="text-xs text-slate-400 font-bold">
-                                            Eredmény: <span className="text-white">{m.score || '?'}</span>
+                                            Eredmény: <span className="text-white">{recordedMatchScore(m.score)}</span>
                                             {' • '}AVG: <span className="text-indigo-400">{m.stats?.average?.toFixed(1) || '?'}</span>
                                         </span>
                                     </div>
@@ -772,12 +768,12 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Legend */}
                                         <div className="flex items-center gap-3 mt-5 px-4">
-                                            <span className="text-[9px] text-slate-500 font-bold uppercase shrink-0">Kevés dobás</span>
+                                            <span className="text-[9px] text-slate-500 font-bold uppercase shrink-0">Kevés találat</span>
                                             <div className="flex-1 h-3 rounded-full" style={{ background: 'linear-gradient(to right, #450a0a, #7f1d1d, #b91c1c, #dc2626, #ef4444, #f87171)' }} />
                                             <span className="text-[9px] text-rose-400 font-bold uppercase shrink-0">🔥 Legtöbb</span>
                                         </div>
                                         <p className="text-center text-[9px] text-slate-600 font-bold mt-2 uppercase tracking-widest">
-                                            Minél pirosabb → annál többet dobtál arra a szektorra
+                                            Minél pirosabb → annál több találatot rögzítettél a szektorban
                                         </p>
                                     </div>
 
@@ -785,7 +781,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                     <div className="bg-[#12141a] rounded-[2rem] border border-slate-800 p-6">
                                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                                             <FireIcon className="h-4 w-4 text-rose-500" />
-                                            {hmFilter === 'all' ? 'Top 10 célpont' : `Top ${hmFilter === 'double' ? 'Dupla' : hmFilter === 'treble' ? 'Tripla' : 'Single'} szektorok`}
+                                            {hmFilter === 'all' ? 'Top 10 eltalált szektor' : `Top ${hmFilter === 'double' ? 'Dupla' : hmFilter === 'treble' ? 'Tripla' : 'Single'} szektorok`}
                                         </h3>
 
                                         {filteredHeatList.length === 0 ? (
@@ -793,8 +789,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                         ) : (
                                             <div className="flex flex-col gap-2">
                                                 {filteredHeatList.slice(0, 10).map((h, i) => {
-                                                    const maxThrows = filteredHeatList[0]?.throws || 1;
-                                                    const barPct = Math.round((h.throws / maxThrows) * 100);
+                                                    const maxHits = filteredHeatList[0]?.hits || 1;
+                                                    const barPct = Math.round((h.hits / maxHits) * 100);
                                                     const typeColor = h.type === 'treble' ? 'bg-rose-500' : h.type === 'double' ? 'bg-emerald-500' : 'bg-slate-500';
                                                     const typeText  = h.type === 'treble' ? 'text-rose-400' : h.type === 'double' ? 'text-emerald-400' : 'text-slate-400';
                                                     return (
@@ -804,12 +800,12 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                                             <div className="flex-1 h-5 bg-slate-900 rounded-full overflow-hidden relative">
                                                                 <div className={`h-full rounded-full ${typeColor} opacity-70 transition-all`} style={{ width: `${barPct}%` }} />
                                                                 <span className="absolute inset-0 flex items-center justify-end pr-2 text-[9px] font-black text-white">
-                                                                    {h.throws} db
+                                                                    {h.hits} db
                                                                 </span>
                                                             </div>
                                                             <div className="text-right w-16 shrink-0">
-                                                                <span className="text-xs font-black text-white">{h.accuracy}%</span>
-                                                                <span className="text-[9px] text-slate-500 font-bold block">pontosság</span>
+                                                                <span className="text-xs font-black text-white">{h.sharePct}%</span>
+                                                                <span className="text-[9px] text-slate-500 font-bold block">találatból</span>
                                                             </div>
                                                         </div>
                                                     );
@@ -825,13 +821,8 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                                                 <InformationCircleIcon className="h-4 w-4" /> Személyre szabott javaslat
                                             </h3>
                                             <ul className="flex flex-col gap-2 text-sm text-slate-300 font-bold">
-                                                <li>🎯 Legtöbbet dobott szektored: <span className="text-white">{heatInsight.topTarget.key}</span> ({heatInsight.topTarget.throws} dobás, {heatInsight.topTarget.accuracy}% pontosság)</li>
-                                                {heatInsight.worstDouble && (
-                                                    <li>⚠️ Leggyengébb duplád: <span className="text-rose-400">{heatInsight.worstDouble.key}</span> ({heatInsight.worstDouble.accuracy}%) — erre érdemes edzeni!</li>
-                                                )}
-                                                {heatInsight.bestDouble && (
-                                                    <li>✅ Legjobb kiszálló duplád: <span className="text-emerald-400">{heatInsight.bestDouble.key}</span> ({heatInsight.bestDouble.accuracy}%) — használd ezt kiszállóban!</li>
-                                                )}
+                                                <li>🎯 Legtöbbször eltalált szektored: <span className="text-white">{heatInsight.topTarget.key}</span> ({heatInsight.topTarget.hits} találat, az összes rögzített találat {heatInsight.topTarget.sharePct}%-a).</li>
+                                                <li>A célzási pontosság méréséhez a célzott szektort is rögzíteni kell.</li>
                                             </ul>
                                         </div>
                                     )}
@@ -900,7 +891,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                     onClick={() => setSelectedMatch(null)}>
                     <div className="bg-[#12141a] border border-indigo-500/40 p-6 rounded-[2rem] w-full max-w-lg shadow-2xl relative max-h-[85vh] overflow-y-auto"
                         onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setSelectedMatch(null)} className="absolute top-5 right-5 text-slate-500 hover:text-white transition-colors">
+                        <button onClick={() => setSelectedMatch(null)} aria-label="Meccsadatok bezárása" className="absolute top-5 right-5 text-slate-500 hover:text-white transition-colors">
                             <XMarkIcon className="h-7 w-7" />
                         </button>
                         <div className="text-center mb-6 border-b border-slate-800 pb-5">
@@ -909,7 +900,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
                             </span>
                             <h2 className="text-2xl font-black text-white uppercase italic">vs {selectedMatch.opponent}</h2>
                             <div className="mt-3 inline-block bg-slate-900 border border-slate-700 px-6 py-2 rounded-xl">
-                                <span className="text-xl font-mono font-black text-white">{selectedMatch.score || '?'}</span>
+                                <span className="text-xl font-mono font-black text-white">{recordedMatchScore(selectedMatch.score)}</span>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
