@@ -9,8 +9,8 @@ export const heatmapBands = [
     { label: '0', color: '#303741' },
     { label: '1–2', color: '#4b5964' },
     { label: '3–9', color: '#728793' },
-    { label: '10–19', color: '#b0c5cb' },
-    { label: '20+', color: '#efbd60' },
+    { label: '10–19', color: '#a6b5bd' },
+    { label: '20+', color: '#e7ecef' },
 ] as const;
 
 export const heatmapColor = (hits: number) =>
@@ -61,7 +61,7 @@ export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSec
         return {
             fill: active ? (hits > 0 ? heatmapColor(hits) : emptyColor) : '#161b20',
             opacity: active ? 1 : 0.55,
-            stroke: selected ? '#ffffff' : '#0b0d11',
+            stroke: selected ? '#22d3ee' : '#0b0d11',
             strokeWidth: selected ? 2.6 : 1.2,
             className: interactive ? 'cursor-pointer hover:brightness-125 transition-[filter]' : undefined,
             role: accessible ? 'button' : undefined,
@@ -92,6 +92,6 @@ export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSec
         })}
         <circle cx={center} cy={center} r="15" {...sectorAttributes('25', emptySectorColor(0, 'bull'))} />
         <circle cx={center} cy={center} r="6.5" {...sectorAttributes('50', emptySectorColor(0, 'bull'))} />
-        {selectedSector === 'BULL' && <circle cx={center} cy={center} r="18" fill="none" stroke="#ffffff" strokeWidth="2" pointerEvents="none" />}
+        {selectedSector === 'BULL' && <circle cx={center} cy={center} r="18" fill="none" stroke="#22d3ee" strokeWidth="2" pointerEvents="none" />}
     </svg>;
 }
