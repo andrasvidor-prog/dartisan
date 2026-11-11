@@ -79,9 +79,9 @@ export default function Home() {
               // A napváltást a Firestore által visszaigazolt szerveridőből számoljuk.
               await setDoc(docRef, { serverClockProbe: serverTimestamp() }, { merge: true });
               const docSnap = await getDocFromServer(docRef);
-              const serverNow = docSnap.get('serverClockProbe')?.toDate();
-              if (!serverNow) throw new Error('Firestore server time unavailable');
-              const todayStr = serverNow.toISOString().split('T')[0];
+              const serverClock = docSnap.get('serverClockProbe');
+              const serverNow = serverClock && typeof serverClock.toDate === 'function' ? serverClock.toDate() : null;
+              const todayStr = serverNow ? serverNow.toISOString().split('T')[0] : null;
 
               if (docSnap.exists() && docSnap.data().createdAt) {
                   const data = { ...docSnap.data() };
@@ -96,7 +96,7 @@ export default function Home() {
                   let currentStreak = data.streak || 1;
                   const lastLogin = data.lastLogin;
 
-                  if (lastLogin && lastLogin !== todayStr) {
+                  if (lastLogin && todayStr && lastLogin !== todayStr) {
                       const lastDate = new Date(lastLogin);
                       const todayDate = new Date(todayStr);
                       const diffTime = todayDate.getTime() - lastDate.getTime();
@@ -117,7 +117,7 @@ export default function Home() {
                   const initialProfile = {
                       name: displayName, email: user.email, photoURL: user.photoURL, 
                       tag: randomTag, xp: 0, weeklyXp: 0, matchesWon: 0, 
-                      createdAt: serverTimestamp(), lastLogin: todayStr, streak: 1
+                      createdAt: serverTimestamp(), lastLogin: todayStr || new Date().toISOString().split('T')[0], streak: 1
                   };
                   await setDoc(docRef, initialProfile, { merge: true });
                   syncPublicProfile(user.uid, initialProfile).catch(error => console.error('Public profile sync:', error));
