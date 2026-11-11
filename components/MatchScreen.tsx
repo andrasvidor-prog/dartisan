@@ -32,6 +32,12 @@ export type PlayerData = {
     first9Points: number; first9Darts: number; legAverages: number[];
     teamId?: number; customStartingScore?: number;  
 };
+
+const copyPlayers = (players: PlayerData[]): PlayerData[] => players.map(player => ({
+    ...player,
+    history: [...player.history],
+    legAverages: [...player.legAverages],
+}));
 type OnlineRoom = {
     state: {
         currentLeg: number;
@@ -935,7 +941,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     else triggerHaptic('checkout');
 
     setPlayers(prev => {
-      const np = prev.map(pl => ({ ...pl })); 
+      const np = copyPlayers(prev);
       const activeP = np[playerIndex];
       
       const legDarts = activeP.currentLegDarts + winningDartsInRound;
@@ -948,6 +954,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       activeP.currentLegDarts += winningDartsInRound; 
       activeP.totalDarts += winningDartsInRound; 
       activeP.totalPoints += checkoutValue; 
+      activeP.lastVisit = checkoutValue;
       activeP.checkoutAttempts = Math.max(activeP.checkoutAttempts, activeP.checkoutSuccess + 1);
       activeP.checkoutSuccess += 1;
       if (checkoutValue > activeP.highestCheckout) activeP.highestCheckout = checkoutValue;
@@ -1024,7 +1031,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 setPracticeStatus('won_121_round');
                 setTimeout(() => { 
                     const nextTarget = c121Target + 1; setC121Target(nextTarget); setC121DartsLeft(9); 
-                    setPlayers(prev => { const np = [...prev]; np[0].score = nextTarget; np[0].history = []; return np; }); 
+                    setPlayers(prev => { const np = copyPlayers(prev); np[0].score = nextTarget; np[0].history = []; return np; });
                     setCurrentDarts([]); setPracticeStatus('playing'); 
                 }, 2000); 
                 return;
@@ -1044,7 +1051,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             if (newDarts.length === 3) {
                 announceScore(validPts.toString());
                 setTimeout(() => { 
-                    setPlayers(prev => { const np = [...prev]; np[0].score -= validPts; np[0].history.push({ score: np[0].score, dartsCount: 3, points: validPts, roundDarts: newDarts }); return np; }); 
+                    setPlayers(prev => { const np = copyPlayers(prev); np[0].score -= validPts; np[0].history.push({ score: np[0].score, dartsCount: 3, points: validPts, roundDarts: newDarts }); return np; });
                     setCurrentDarts([]); 
                     if (c121DartsLeft - 1 <= 0) setPracticeStatus('lost'); 
                 }, 600);
@@ -1086,13 +1093,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             announceScore(txt.checkoutMsg(validPts), false, false, true);
             triggerHaptic('checkout');
             setPlayers(prev => { 
-                const np = prev.map(pl => ({ ...pl })); 
+                const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
                 const legDarts = pl.currentLegDarts + allDarts.length;
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
                 pl.legAverages.push(parseFloat(thisLegAvg.toFixed(1)));
-                pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.totalPoints += validPts; pl.score = 0; pl.opened = true;
+                pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.totalPoints += validPts; pl.score = 0; pl.opened = true; pl.lastVisit = validPts;
                 pl.checkoutAttempts = Math.max(pl.checkoutAttempts, pl.checkoutSuccess + 1);
                 pl.checkoutSuccess += 1;
                 pl.highestCheckout = Math.max(pl.highestCheckout, validPts);
@@ -1112,7 +1119,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     if (isBust) {
       triggerHaptic('bust'); announceScore(validPts.toString(), false, true);
       setPlayers(prev => { 
-          const np = prev.map(pl => ({ ...pl })); 
+          const np = copyPlayers(prev);
           const pl = np[activePlayer]; 
           pl.history.push({ score: pl.score, dartsCount: allDarts.length, points: 0, roundDarts: allDarts, openedBefore: pl.opened });
           pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.lastVisit = 0; pl.opened = visit.opened;
@@ -1176,7 +1183,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     if (isBust) {
        triggerHaptic('bust'); announceScore(pts.toString(), false, true); 
        setPlayers(prev => { 
-           const np = prev.map(pl => ({ ...pl })); 
+           const np = copyPlayers(prev);
            const pl = np[activePlayer]; 
            const dartsBeforeBust = pl.currentLegDarts;
            pl.history.push({ score: pl.score, dartsCount: 3, points: 0, roundDarts: [] }); 
@@ -1193,13 +1200,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (isAsync) { 
             triggerHaptic('checkout'); announceScore(txt.checkoutMsg(pts), false, false, true);
             setPlayers(prev => { 
-                const np = prev.map(pl => ({ ...pl })); 
+                const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
                 const legDarts = pl.currentLegDarts + usedDarts;
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
                 pl.legAverages.push(parseFloat(thisLegAvg.toFixed(1)));
-                pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.totalPoints += pts; pl.score = 0;
+                pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.totalPoints += pts; pl.score = 0; pl.lastVisit = pts;
                 pl.checkoutAttempts = Math.max(pl.checkoutAttempts, pl.checkoutSuccess + 1);
                 pl.checkoutSuccess += 1;
                 pl.highestCheckout = Math.max(pl.highestCheckout, pts);
@@ -1215,7 +1222,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     } else { 
         if (pts === 180) announceScore('', true, false); else announceScore(pts.toString());
         setPlayers(prev => { 
-            const np = prev.map(pl => ({ ...pl })); 
+            const np = copyPlayers(prev);
             const pl = np[activePlayer]; 
             pl.score = tScore; 
             pl.history.push({ score: pl.score + pts, dartsCount: 3, points: pts, roundDarts: [] }); 
@@ -1253,10 +1260,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             });
             const v = visit.scored;
             setPlayers(prev => { 
-                const np = prev.map(pl => ({ ...pl })); 
+                const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
+                const openedBefore = pl.opened;
                 pl.score -= v; pl.opened = visit.opened;
-                pl.history.push({ score: pl.score + v, dartsCount: 3, points: v, roundDarts: currentDarts, openedBefore: pl.opened });
+                pl.history.push({ score: pl.score + v, dartsCount: 3, points: v, roundDarts: currentDarts, openedBefore });
                 pl.totalPoints += v; pl.totalDarts += 3; pl.currentLegDarts += 3; pl.lastVisit = v; 
                 updateRoundStats(pl, v); 
                 
@@ -1315,7 +1323,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     
     const prevPlayerIdx = activePlayer === 0 ? players.length - 1 : activePlayer - 1;
     setPlayers(prev => {
-        const np = prev.map(pl => ({ ...pl })); 
+        const np = copyPlayers(prev);
         const pl = np[prevPlayerIdx]; 
         const lh = pl.history[pl.history.length - 1];
         if (lh.points === 180) pl.count180 = Math.max(0, pl.count180 - 1); 
@@ -1415,8 +1423,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     }
   };
 
-  const displayPlayers = isAsync ? players : (players.length > 2 ? players : [...players.slice(activePlayer), ...players.slice(0, activePlayer)]);
+  const displayPlayers = players;
   const safePlayer = players[activePlayer] || players[0];
+  const lastCompletedPlayer = isAsync || players.length === 1
+      ? safePlayer
+      : players[(activePlayer - 1 + players.length) % players.length];
   const matchWinnerPlayer = players.reduce((winner, player) => player.setsWon > winner.setsWon ? player : winner, players[0]);
   const winnerColorTheme = COLOR_STYLES[matchWinnerPlayer?.color] || COLOR_STYLES.emerald;
   const legWinnerPlayer = isAsync
@@ -1450,10 +1461,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               const pColTxt = pColStyle.split(' ')[0];
               const pColBor = pColStyle.split(' ')[1];
               return (
-                  <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[94px] sm:min-h-[108px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
+                  <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[110px] sm:min-h-[124px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
                       <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
                       <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.score}</span>
                       <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{config.gameMode === 'practice' ? practiceName : <>{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</>}</span>
+                      {config.gameMode !== 'practice' && <span className="text-[10px] sm:text-xs font-bold text-slate-400 tabular-nums">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}: <span className="text-white font-black">{pl.lastVisit ?? '—'}</span></span>}
                   </div>
               );
           })}
@@ -1473,7 +1485,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
       <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
         <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Soron' : 'Turn'}</div><div className={`text-sm font-black truncate ${colTxt}`}>{safePlayer?.name}</div></div>
-        <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.lastVisit ?? '—'}</div></div>
+        <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Legutóbbi kör' : 'Latest visit'}</div><div className="text-sm font-black text-white tabular-nums">{lastCompletedPlayer?.lastVisit ?? '—'}</div><div className="text-[9px] text-slate-400 truncate">{lastCompletedPlayer?.lastVisit != null ? lastCompletedPlayer.name : '\u00a0'}</div></div>
         <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? '3 nyilas átlag' : '3-dart avg'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.totalDarts ? ((safePlayer.totalPoints / safePlayer.totalDarts) * 3).toFixed(1) : '—'}</div></div>
       </div>
 
@@ -1514,7 +1526,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                         {currentDarts[i] ? ((currentDarts[i].mult === 3 ? 'T' : currentDarts[i].mult === 2 ? 'D' : '') + (currentDarts[i].val === 0 ? 'M' : currentDarts[i].val)) : ''}
                     </div>
                 ))}
-                <button onClick={handleUndo} className="w-14 sm:w-16 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
+                <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Utolsó dobás visszavonása' : 'Undo last throw'} className="w-14 sm:w-16 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
                     <BackspaceIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                 </button>
             </div>
@@ -1551,7 +1563,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                         {d?((d.mult===3?'T':d.mult===2?'D':'')+(d.val===0?'M':d.val)):'' }
                     </div>;
                 })}
-                <button onClick={handleUndo} className="w-12 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
+                <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Utolsó dobás visszavonása' : 'Undo last throw'} className="w-12 bg-slate-800/60 rounded-xl flex items-center justify-center border border-slate-700 text-slate-400 active:scale-90">
                     <BackspaceIcon className="h-5 w-5"/>
                 </button>
             </div>
@@ -1578,7 +1590,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             {/* Score display */}
             <div className="flex justify-between items-center px-4 sm:px-6 h-14 sm:h-16 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner">
                 <span className="font-mono text-4xl sm:text-5xl font-black text-white">{input || (isBotTurn ? '' : '0')}</span>
-                <button onClick={handleUndo} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8 sm:h-9 sm:w-9"/></button>
+                <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Utolsó dobás visszavonása' : 'Undo last throw'} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8 sm:h-9 sm:w-9"/></button>
             </div>
             {/* Numpad */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3 md:flex-1 md:grid-rows-4">
