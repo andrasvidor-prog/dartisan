@@ -402,6 +402,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     return savedMode === 'detailed' || savedMode === 'board' ? savedMode : 'fast';
   });
   const [input, setInput] = useState('');
+  const [fastError, setFastError] = useState('');
   const [pendingCheckout, setPendingCheckout] = useState<number | null>(null);
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
@@ -1150,8 +1151,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     const pts = overridePts !== undefined ? overridePts : parseInt(input); 
     
     if (!Number.isInteger(pts) || !canScoreInDarts(pts, 3)) {
-        triggerHaptic('bust'); alert(txt.impossible); setInput(''); return; 
+        triggerHaptic('bust');
+        setFastError(txt.impossible);
+        return;
     }
+    setFastError('');
     
     const activeP = players[activePlayer]; 
     if (activeP.isBot && !fromBot) return;
@@ -1312,7 +1316,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         setCurrentDarts(currentDarts.slice(0, -1)); return;
     }
 
-    if (inputMode === 'fast' && input.length > 0) { setInput(input.slice(0, -1)); return; }
+    if (inputMode === 'fast' && input.length > 0) { setFastError(''); setInput(input.slice(0, -1)); return; }
     if ((inputMode === 'detailed' || inputMode === 'board') && currentDarts.length > 0 && !players[activePlayer].isBot) {
         undoHeatmapDart(currentDarts[currentDarts.length - 1]);
         setCurrentDarts(currentDarts.slice(0, -1)); return;
@@ -1606,10 +1610,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 <span className="font-mono text-4xl sm:text-5xl font-black text-white">{input || (isBotTurn ? '' : '0')}</span>
                 <button onClick={handleUndo} aria-label={lang === 'hu' ? 'Utolsó dobás visszavonása' : 'Undo last throw'} className="p-2 text-slate-700 active:scale-90"><BackspaceIcon className="h-8 w-8 sm:h-9 sm:w-9"/></button>
             </div>
+            <p role={fastError ? 'alert' : undefined} className="min-h-4 px-1 text-xs font-semibold text-rose-400">{fastError}</p>
             {/* Numpad */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3 md:flex-1 md:grid-rows-4">
                 {[1,2,3,4,5,6,7,8,9,0].map(n => (
-                    <button key={n} disabled={isBotTurn} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing' && !isBotTurn) setInput(input+n); }}
+                    <button key={n} disabled={isBotTurn} onClick={() => { triggerHaptic('tap'); if(asyncState==='playing' && !isBotTurn) { setFastError(''); setInput(input+n); } }}
                         className={`h-14 sm:h-16 md:h-full md:min-h-18 rounded-xl bg-slate-800/40 text-2xl sm:text-3xl md:text-4xl font-black text-slate-200 active:scale-95 transition-transform ${n === 0 ? 'col-span-2' : ''}`}>{n}</button>
                 ))}
                 <button disabled={isBotTurn} onClick={() => handleFastEnter()}

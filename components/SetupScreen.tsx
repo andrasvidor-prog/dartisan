@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { signInWithPopup, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously } from 'firebase/auth';
 import { 
     XMarkIcon, PlusIcon, ComputerDesktopIcon, UserIcon, UserCircleIcon, 
@@ -106,6 +106,9 @@ const t = {
 };
 
 const COLORS: PlayerColor[] = ['emerald', 'rose', 'cyan', 'amber', 'purple'];
+const PLAYER_COLOR_CLASS: Record<PlayerColor, string> = {
+  emerald: 'bg-emerald-500', rose: 'bg-rose-500', cyan: 'bg-cyan-500', amber: 'bg-amber-500', purple: 'bg-purple-500',
+};
 const APPLE_WEB_AUTH_READY = process.env.NEXT_PUBLIC_APPLE_AUTH_READY === 'true';
 
 interface SetupScreenProps {
@@ -180,6 +183,38 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   const [authError, setAuthError] = useState('');
   const [authErrorCode, setAuthErrorCode] = useState('');
   const [authNotice, setAuthNotice] = useState('');
+  const authDialogRef = useRef<HTMLDivElement>(null);
+  const questsDialogRef = useRef<HTMLDivElement>(null);
+  const bullOffDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = showAuth ? authDialogRef.current : showQuests ? questsDialogRef.current : bullOffOpen ? bullOffDialogRef.current : null;
+    if (!dialog) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'))
+      .filter(element => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (showAuth) setShowAuth(false);
+        else if (showQuests) setShowQuests(false);
+        else setBullOffOpen(false);
+      }
+      if (event.key !== 'Tab') return;
+      const controls = focusable();
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    dialog.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      dialog.removeEventListener('keydown', handleDialogKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [showAuth, showQuests, bullOffOpen]);
 
   useEffect(() => {
     if (!isSignInWithEmailLink(auth, window.location.href)) return;
@@ -570,7 +605,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
 
       {bullOffOpen && (
         <div className="fixed inset-0 z-[180] bg-[#0b0d11]/95 backdrop-blur-md flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="bull-off-title" className="w-full max-w-lg rounded-3xl border border-amber-500/40 bg-[#12141a] p-5 sm:p-7 shadow-2xl">
+          <div ref={bullOffDialogRef} role="dialog" aria-modal="true" aria-labelledby="bull-off-title" className="w-full max-w-lg rounded-3xl border border-amber-500/40 bg-[#12141a] p-5 sm:p-7 shadow-2xl">
             <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">BULL-OFF</p><h2 id="bull-off-title" className="text-2xl font-black text-white uppercase italic">{lang === 'hu' ? 'Ki kezd?' : 'Who starts?'}</h2></div><button type="button" onClick={() => setBullOffOpen(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="p-2 rounded-lg bg-slate-800 text-slate-300"><XMarkIcon className="h-5 w-5" /></button></div>
             <p className="text-xs text-slate-400 mt-3 mb-5">{lang === 'hu' ? 'Minden játékos dob egy nyilat. A belső bull a legjobb, majd a külső bull, a tábla és a mellé dobás. Döntetlen esetén dobjatok újra.' : 'Each player throws one dart. Inner bull wins over outer bull, board hit and miss. Re-throw on a tie.'}</p>
             <div className="space-y-3">
@@ -600,7 +635,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
       )}
 
       {showAuth && (
-          <div role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-[calc(5rem+var(--app-safe-top))] pb-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
+          <div ref={authDialogRef} role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-[calc(5rem+var(--app-safe-top))] pb-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
               <button onClick={() => setShowAuth(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="fixed top-[calc(1rem+var(--app-safe-top))] right-4 p-2 text-slate-500 hover:text-white z-10"><XMarkIcon className="h-7 w-7" /></button>
               <KeyIcon className="h-16 w-16 shrink-0 text-emerald-400 mb-6" />
               <h2 id="auth-title" className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 shrink-0">{currentUser ? 'Fiókod' : txt.login}</h2>
@@ -658,7 +693,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
 
       {/* --- KÜLDETÉSEK PANEL - FRISSÍTETT DIZÁJN --- */}
       {showQuests && (
-          <div role="dialog" aria-modal="true" aria-labelledby="quests-title" className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-[calc(4rem+var(--app-safe-top))] pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
+          <div ref={questsDialogRef} role="dialog" aria-modal="true" aria-labelledby="quests-title" className="fixed inset-0 z-[150] bg-[#0b0d11]/95 flex flex-col items-center justify-start pt-[calc(4rem+var(--app-safe-top))] pb-8 px-6 backdrop-blur-md overflow-y-auto custom-scrollbar">
               <button onClick={() => setShowQuests(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="fixed top-[calc(1rem+var(--app-safe-top))] right-4 p-2 text-slate-500 hover:text-white z-10"><XMarkIcon className="h-7 w-7" /></button>
               <ListBulletIcon className="h-12 w-12 text-cyan-400 mb-2" />
               <h2 id="quests-title" className="text-3xl font-black text-white uppercase italic mb-2 tracking-tighter">{txt.quests}</h2>
@@ -811,10 +846,10 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                     {players.slice(0, tab === 'challenge' ? 1 : 4).map((p, idx) => (
                     <div key={idx} className="flex flex-col bg-[#0b0d11] p-3 rounded-xl border border-slate-800">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => updatePlayer(idx, { color: COLORS[((COLORS.indexOf(p.color) === -1 ? 0 : COLORS.indexOf(p.color)) + 1) % COLORS.length] })} className={`h-4 w-4 shrink-0 rounded-full border-2 border-[#12141a] bg-${p.color}-500 shadow-[0_0_10px_currentColor]`}></button>
-                            <input type="text" value={p.name} onChange={(e) => updatePlayer(idx, { name: e.target.value })} className="flex-1 h-8 bg-transparent text-white font-bold outline-none uppercase text-sm" />
-                            {tab === 'x01' && <button onClick={() => updatePlayer(idx, { isBot: !p.isBot })} className={`p-2 rounded-lg border transition-all ${p.isBot ? 'bg-[#b655ff]/20 border-[#b655ff]/50 text-[#b655ff]' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>{p.isBot ? <ComputerDesktopIcon className="h-5 w-5" /> : <UserIcon className="h-5 w-5" />}</button>}
-                            {tab === 'x01' && players.length > 1 && (<button onClick={() => setPlayers(players.filter((_, i) => i !== idx))} className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-500"><XMarkIcon className="h-5 w-5" /></button>)}
+                            <button type="button" aria-label={lang === 'hu' ? `${idx + 1}. játékos színének váltása` : `Change player ${idx + 1} color`} onClick={() => updatePlayer(idx, { color: COLORS[((COLORS.indexOf(p.color) === -1 ? 0 : COLORS.indexOf(p.color)) + 1) % COLORS.length] })} className="h-9 w-9 shrink-0 rounded-lg border border-slate-700 bg-slate-800 flex items-center justify-center"><span className={`h-4 w-4 rounded-full ${PLAYER_COLOR_CLASS[p.color]}`} /></button>
+                            <input type="text" aria-label={lang === 'hu' ? `${idx + 1}. játékos neve` : `Player ${idx + 1} name`} value={p.name} onChange={(e) => updatePlayer(idx, { name: e.target.value })} className="min-w-0 flex-1 h-9 bg-transparent text-white font-bold outline-none uppercase text-sm" />
+                            {tab === 'x01' && <button type="button" aria-label={lang === 'hu' ? `${idx + 1}. játékos: ${p.isBot ? 'bot mód kikapcsolása' : 'bot mód bekapcsolása'}` : `Player ${idx + 1}: ${p.isBot ? 'disable' : 'enable'} bot mode`} onClick={() => updatePlayer(idx, { isBot: !p.isBot })} className={`p-2 rounded-lg border transition-all ${p.isBot ? 'bg-[#b655ff]/20 border-[#b655ff]/50 text-[#b655ff]' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>{p.isBot ? <ComputerDesktopIcon className="h-5 w-5" /> : <UserIcon className="h-5 w-5" />}</button>}
+                            {tab === 'x01' && players.length > 1 && (<button type="button" aria-label={lang === 'hu' ? `${idx + 1}. játékos eltávolítása` : `Remove player ${idx + 1}`} onClick={() => setPlayers(players.filter((_, i) => i !== idx))} className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-500"><XMarkIcon className="h-5 w-5" /></button>)}
                         </div>
                         
                         {tab === 'x01' && (
@@ -822,6 +857,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                                 <div className="flex-1 flex flex-col">
                                     <span className="text-[8px] uppercase font-black text-slate-500 mb-1 tracking-widest">{txt.team}</span>
                                     <select 
+                                        aria-label={lang === 'hu' ? `${idx + 1}. játékos csapata` : `Player ${idx + 1} team`}
                                         value={p.teamId === undefined ? 'none' : String(p.teamId)} 
                                         onChange={(e) => updatePlayer(idx, { teamId: e.target.value === 'none' ? undefined : parseInt(e.target.value) })} 
                                         className="bg-slate-900 text-xs font-bold text-white rounded-md p-1.5 border border-slate-700 outline-none"
@@ -836,6 +872,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                                     <span className="text-[8px] uppercase font-black text-slate-500 mb-1 tracking-widest">{txt.handicap}</span>
                                     <input 
                                         type="number" 
+                                        aria-label={lang === 'hu' ? `${idx + 1}. játékos egyedi kezdőpontja` : `Player ${idx + 1} custom starting score`}
                                         min="0"
                                         placeholder={txt.noHandicap} 
                                         value={p.customStartingScore || ''} 

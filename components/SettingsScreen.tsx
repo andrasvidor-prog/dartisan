@@ -142,8 +142,10 @@ const LABELS = {
 
 const Toggle = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) => (
     <button type="button" role="switch" aria-checked={value} aria-label={label} onClick={() => onChange(!value)}
-        className={`w-12 h-6 rounded-full p-1 transition-all duration-300 shrink-0 ${value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-        <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-300 ${value ? 'translate-x-6' : 'translate-x-0'}`}/>
+        className="w-14 h-11 rounded-xl flex items-center justify-center shrink-0">
+        <span className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+            <span className={`block w-4 h-4 bg-white rounded-full transition-transform duration-300 ${value ? 'translate-x-6' : 'translate-x-0'}`}/>
+        </span>
     </button>
 );
 
@@ -361,7 +363,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                     <ArrowLeftIcon className="h-5 w-5"/>
                 </button>
                 <div className="flex items-center gap-2">
-                    <Cog6ToothIcon className="h-6 w-6 text-amber-400"/>
+                    <Cog6ToothIcon className="h-6 w-6 text-emerald-400"/>
                     <h1 className="text-lg font-black text-white uppercase italic tracking-widest">{txt.title}</h1>
                 </div>
                 <div className="w-10"/>
@@ -371,7 +373,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
             <div className="flex gap-1.5 px-4 py-3 bg-[#12141a] border-b border-slate-800 shrink-0">
                 {TABS.map((tab,i)=>(
                     <button key={i} onClick={()=>setActiveTab(i)}
-                        className={`flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all ${activeTab===i ? 'bg-amber-500 text-slate-900 shadow-[0_0_15px_rgba(245,158,11,0.35)]' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
+                        className={`flex-1 min-h-11 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all ${activeTab===i ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.25)]' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
                         {tab}
                     </button>
                 ))}
@@ -384,7 +386,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                 {activeTab === 0 && (
                     <>
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
-                        <h2 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                        <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-4">
                             <LanguageIcon className="h-4 w-4"/> {txt.appearTitle}
                         </h2>
 
@@ -393,7 +395,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                             <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-700 gap-1">
                                 {(['hu','en'] as const).map(l=>(
                                     <button key={l} onClick={()=>applyLang(l)}
-                                        className={`px-4 py-1.5 rounded-lg font-black text-xs transition-all ${lang===l?'bg-slate-600 text-white':'text-slate-500 hover:text-slate-300'}`}>
+                                        className={`min-h-11 px-4 rounded-lg font-black text-xs transition-all ${lang===l?'bg-slate-600 text-white':'text-slate-500 hover:text-slate-300'}`}>
                                         {l.toUpperCase()}
                                     </button>
                                 ))}
@@ -410,7 +412,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                                         disabled={opt.disabled}
                                         className={`flex items-center gap-2 px-4 py-3 rounded-xl font-black text-xs border transition-all
                                             ${opt.disabled ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900 text-slate-600'
-                                            : theme===opt.key ? 'bg-amber-500 text-slate-900 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                                            : theme===opt.key ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
                                             : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600 hover:text-white'}`}>
                                         {opt.icon}
                                         <span>{opt.label}</span>
@@ -424,7 +426,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
 
                     {/* Haptic */}
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
-                        <h2 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-3">
+                        <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-3">
                             <DevicePhoneMobileIcon className="h-4 w-4"/> {lang === 'hu' ? 'Eszköz' : 'Device'}
                         </h2>
                         <Row label={txt.haptic} desc={txt.hapticDesc} icon={<DevicePhoneMobileIcon className="h-5 w-5"/>}>
@@ -438,7 +440,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                 {activeTab === 1 && (
                     <>
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
-                        <h2 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                        <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-4">
                             <AdjustmentsHorizontalIcon className="h-4 w-4"/> {txt.gameplayTitle}
                         </h2>
 
@@ -499,7 +501,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                             <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
                                 {DOUBLES.map(d=>(
                                     <button key={d} onClick={()=>setFavDouble(d)}
-                                        className={`h-9 rounded-lg font-black text-xs border transition-all ${favDouble===d?'bg-amber-500 text-slate-900 border-amber-400':'bg-slate-900 text-slate-500 border-slate-800'}`}>
+                                        className={`min-h-11 rounded-lg font-black text-xs border transition-all ${favDouble===d?'bg-emerald-500 text-slate-950 border-emerald-400':'bg-slate-900 text-slate-500 border-slate-800'}`}>
                                         {d}
                                     </button>
                                 ))}
@@ -511,14 +513,14 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                         <div>
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{txt.fastBtns}</p>
                             <input type="text" value={fastBtns} onChange={e=>setFastBtns(e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono font-bold focus:border-amber-500 outline-none text-sm"/>
+                                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono font-bold focus:border-emerald-500 outline-none text-sm"/>
                             <p className="text-[9px] text-slate-600 mt-1.5 font-bold">{txt.fastBtnsDesc}</p>
                         </div>
                     </div>
 
                     {/* Save button */}
                     <button onClick={saveAll}
-                        className={`w-full h-14 rounded-2xl font-black uppercase tracking-widest text-sm transition-all ${saved?'bg-emerald-500 text-slate-900':'bg-amber-500 text-slate-900 hover:bg-amber-400 active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.25)]'}`}>
+                        className={`w-full h-14 rounded-2xl font-black uppercase tracking-widest text-sm transition-all ${saved?'bg-emerald-500 text-slate-900':'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.25)]'}`}>
                         {saved ? txt.saved : txt.saveBtn}
                     </button>
                     </>
@@ -527,7 +529,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
                 {/* ── TAB 2: HANGOK / SOUNDS ─────────────────────────────────── */}
                 {activeTab === 2 && (
                     <div className="bg-[#12141a] rounded-3xl border border-slate-800 p-5">
-                        <h2 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+                        <h2 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-2">
                             <SpeakerWaveIcon className="h-4 w-4"/> {txt.soundTitle}
                         </h2>
                         <Row label={txt.soundMaster} desc={txt.soundMasterDesc}
