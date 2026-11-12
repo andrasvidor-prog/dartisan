@@ -14,7 +14,7 @@ import { db, auth, functions } from '../firebase';
 import { doc, updateDoc, onSnapshot, increment, setDoc, getDoc, writeBatch, runTransaction, deleteDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { publicProfileData } from '../lib/publicProfile';
-import { canCheckoutInDarts, canScoreInDarts, evaluateVisit } from '../lib/x01';
+import { canCheckoutInDarts, canScoreInDarts, evaluateVisit, previewRemainingScore } from '../lib/x01';
 import { recordQuestMatch } from '../lib/quests';
 import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
 import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
@@ -42,6 +42,15 @@ const copyPlayers = (players: PlayerData[]): PlayerData[] => players.map(player 
     history: [...player.history],
     legAverages: [...player.legAverages],
 }));
+
+const displayedRemaining = (player: PlayerData, activePlayer: number, darts: Dart[], config: MatchConfig): number => {
+    if (config.gameMode === 'practice' || player.id !== activePlayer || player.score <= 0 || darts.length === 0) return player.score;
+    return previewRemainingScore(player.score, darts.map(dart => ({ val: dart.val, mult: dart.mult as 1 | 2 | 3 })), {
+        checkIn: config.checkIn,
+        checkout: config.checkout,
+        opened: player.opened ?? (config.checkIn === 'single' || player.score < (player.customStartingScore ?? config.startingScore)),
+    });
+};
 type OnlineRoom = {
     state: {
         currentLeg: number;
@@ -511,7 +520,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
   useEffect(() => {
       localStorage.setItem('dartisan_tv_sync', JSON.stringify({
-          players, activePlayer, currentDarts, config
+          players, activePlayer, currentDarts, config,
+          liveScore: players[activePlayer] ? displayedRemaining(players[activePlayer], activePlayer, currentDarts, config) : null,
       }));
   }, [players, activePlayer, currentDarts, config]);
 
@@ -1424,10 +1434,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const colBg = activeColorTheme.split(' ')[3] || 'bg-emerald-500';
 
   const isBotTurn = safePlayer?.isBot && !isAsync;
+  const activeRemaining = safePlayer ? displayedRemaining(safePlayer, activePlayer, currentDarts, config) : 0;
   const isStandalonePractice = config.gameMode === 'practice' && (config.practiceType === 'hunter' || config.practiceType === 'math');
   const practiceName = config.practiceType === 'around' ? 'Around Clock' : config.practiceType === 'bobs27' ? "Bob's 27" : config.practiceType === '121' ? '121 Challenge' : config.practiceType === 'hunter' ? (lang === 'hu' ? 'Célpont vadász' : 'Target Hunter') : config.practiceType === 'math' ? 'Darts Math' : (lang === 'hu' ? 'AI edzés' : 'AI drill');
 
-  const recObj = getCheckoutTable(safePlayer.score, 3 - currentDarts.length);
+  const recObj = getCheckoutTable(activeRemaining, 3 - currentDarts.length);
 
   return (
     <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-[calc(1rem+var(--app-safe-top))]">
@@ -1448,7 +1459,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               return (
                   <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[110px] sm:min-h-[124px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
                       <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
-                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.score}</span>
+                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : displayedRemaining(pl, activePlayer, currentDarts, config)}</span>
                       <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{config.gameMode === 'practice' ? practiceName : <>{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</>}</span>
                       {config.gameMode !== 'practice' && <span className="text-[10px] sm:text-xs font-bold text-slate-400 tabular-nums">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}: <span className="text-white font-black">{pl.lastVisit ?? '—'}</span></span>}
                   </div>
@@ -1483,7 +1494,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                     <span className="font-mono text-sm sm:text-base font-black tracking-[0.15em] sm:tracking-[0.2em] uppercase italic w-full text-center">
                         🎯 {recObj.text}
                     </span>
-                    {recObj.isSmart && safePlayer.score <= 170 && (
+                    {recObj.isSmart && activeRemaining <= 170 && (
                         <button onClick={(e) => { e.stopPropagation(); triggerHaptic('tap'); setCheckoutStrategy(prev => prev === 'safe' ? 'pro' : 'safe') }} className="ml-2 shrink-0">
                             {checkoutStrategy === 'pro' ? <FireIcon className="h-5 w-5 text-[#b655ff]" /> : <ShieldCheckIcon className="h-5 w-5 text-cyan-400" />}
                         </button>
@@ -1778,7 +1789,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                   return (
                       <div key={pl.id} className={`flex-1 py-4 text-center transition-all ${isAct ? 'opacity-100 bg-slate-900/60' : 'opacity-30'}`}>
                           <p className={`text-[10px] font-black uppercase tracking-widest ${pCol}`}>{pl.name}</p>
-                          <p className="text-6xl sm:text-8xl font-black text-white font-mono leading-none mt-1">{pl.score}</p>
+                          <p className="text-6xl sm:text-8xl font-black text-white font-mono leading-none mt-1">{displayedRemaining(pl, activePlayer, currentDarts, config)}</p>
                           <p className="text-[10px] text-slate-500 font-bold mt-1">S:{pl.setsWon} L:{pl.legsWon}</p>
                           <div className="flex justify-center gap-2 mt-2">
                               {[0,1,2].map(di => {

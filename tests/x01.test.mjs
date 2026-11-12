@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canCheckoutInDarts, canScoreInDarts, evaluateVisit } from '../lib/x01.ts';
+import { canCheckoutInDarts, canScoreInDarts, evaluateVisit, previewRemainingScore } from '../lib/x01.ts';
 
 const rules = { checkIn: 'single', checkout: 'double', opened: true };
 const dart = (val, mult = 1) => ({ val, mult });
@@ -52,4 +52,15 @@ test('invalid dart combinations cannot enter the scoring engine', () => {
   assert.throws(() => evaluateVisit(501, [dart(25, 3)], rules));
   assert.throws(() => evaluateVisit(501, [dart(21)], rules));
   assert.throws(() => evaluateVisit(501, [dart(20), dart(20), dart(20), dart(20)], rules));
+});
+
+test('remaining score updates for each dart, undo, double-in, bust and checkout', () => {
+  assert.equal(previewRemainingScore(501, [], rules), 501);
+  assert.equal(previewRemainingScore(501, [dart(20, 3)], rules), 441);
+  assert.equal(previewRemainingScore(501, [dart(20, 3), dart(20)], rules), 421);
+  assert.equal(previewRemainingScore(501, [dart(20, 3)], rules), 441); // undo the second dart
+  assert.equal(previewRemainingScore(301, [dart(20)], { checkIn: 'double', checkout: 'double', opened: false }), 301);
+  assert.equal(previewRemainingScore(301, [dart(20), dart(20, 2)], { checkIn: 'double', checkout: 'double', opened: false }), 261);
+  assert.equal(previewRemainingScore(32, [dart(20), dart(11)], rules), 32); // bust restores visit
+  assert.equal(previewRemainingScore(40, [dart(20, 2)], rules), 0);
 });

@@ -49,6 +49,14 @@ export function evaluateVisit(
   return { remaining, scored: startingScore - remaining, opened, bust: false, checkout: false, dartsUsed: darts.length };
 }
 
+export function previewRemainingScore(
+  startingScore: number,
+  darts: Dart[],
+  rules: { checkIn: EntryRule; checkout: CheckoutRule; opened: boolean },
+): number {
+  return darts.length === 0 ? startingScore : evaluateVisit(startingScore, darts, rules).remaining;
+}
+
 const ALL_DARTS: Dart[] = [
   { val: 0, mult: 1 },
   ...Array.from({ length: 20 }, (_, i) => [1, 2, 3].map(mult => ({ val: i + 1, mult: mult as 1 | 2 | 3 }))).flat(),

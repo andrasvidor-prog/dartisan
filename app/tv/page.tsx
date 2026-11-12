@@ -3,7 +3,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import type { Dart, PlayerData } from '../../components/MatchScreen';
 
-type TvSync = { players: PlayerData[]; activePlayer: number; currentDarts: Dart[] };
+type TvSync = { players: PlayerData[]; activePlayer: number; currentDarts: Dart[]; liveScore?: number | null };
 const subscribeToMatch = (notify: () => void) => {
     window.addEventListener('storage', notify);
     const interval = window.setInterval(notify, 400);
@@ -74,7 +74,7 @@ export default function TVPage() {
                     return (
                         <div key={pl.id} className={`flex-1 flex flex-col items-center py-4 sm:py-6 gap-1 transition-all duration-300 ${isAct ? 'bg-[#0c0e14]' : 'opacity-25'}`}>
                             <span className="text-[11px] sm:text-xs font-black uppercase tracking-[0.25em]" style={{color:hex}}>{pl.name}</span>
-                            <span className="font-mono font-black text-white leading-none" style={{fontSize:'clamp(3.5rem,14vw,9rem)'}}>{pl.score}</span>
+                            <span className="font-mono font-black text-white leading-none" style={{fontSize:'clamp(3.5rem,14vw,9rem)'}}>{isAct && typeof syncData.liveScore === 'number' ? syncData.liveScore : pl.score}</span>
                             <span className="text-[10px] text-slate-600 font-bold">S:{pl.setsWon} L:{pl.legsWon}</span>
                             {isAct && (
                                 <div className="flex gap-1.5 mt-1">
