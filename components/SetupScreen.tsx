@@ -20,6 +20,7 @@ import { TRAINING_MODES } from '../lib/training';
 import { bullOffWinner, isMatchPreset, readMatchPresets, writeMatchPresets, type BullOffHit, type MatchPreset } from '../lib/matchPresets';
 import { flushHeatmapQueue } from '../lib/heatmapSync';
 import type { HeatmapData } from '../lib/heatmap';
+import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
 type DisplayUser = Pick<User, 'uid' | 'email' | 'displayName' | 'photoURL'> & { selectedAvatar?: string };
@@ -183,6 +184,8 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   const [authError, setAuthError] = useState('');
   const [authErrorCode, setAuthErrorCode] = useState('');
   const [authNotice, setAuthNotice] = useState('');
+  const [emailLinkNeedsAddress, setEmailLinkNeedsAddress] = useState(false);
+  const [feedback, setFeedback] = useState<AppFeedbackState | null>(null);
   const authDialogRef = useRef<HTMLDivElement>(null);
   const questsDialogRef = useRef<HTMLDivElement>(null);
   const bullOffDialogRef = useRef<HTMLDivElement>(null);
@@ -218,15 +221,40 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
 
   useEffect(() => {
     if (!isSignInWithEmailLink(auth, window.location.href)) return;
-    const email = localStorage.getItem('dartisan_email_link') || window.prompt(lang === 'hu' ? 'Melyik e-mail címre kaptad a belépési linket?' : 'Which email address received the sign-in link?');
-    if (!email) return;
+    const email = localStorage.getItem('dartisan_email_link');
+    if (!email) {
+      queueMicrotask(() => {
+        setEmailLinkNeedsAddress(true);
+        setShowAuth(true);
+      });
+      return;
+    }
     signInWithEmailLink(auth, email, window.location.href)
       .then(() => {
         localStorage.removeItem('dartisan_email_link');
         window.history.replaceState({}, '', window.location.pathname);
       })
-      .catch((error) => { console.error('Email link sign-in:', error); alert(lang === 'hu' ? 'A belépési link érvénytelen vagy lejárt.' : 'The sign-in link is invalid or expired.'); });
+      .catch((error) => { console.error('Email link sign-in:', error); setAuthError(lang === 'hu' ? 'A belépési link érvénytelen vagy lejárt.' : 'The sign-in link is invalid or expired.'); setShowAuth(true); });
   }, [lang]);
+
+  const completeEmailLink = async () => {
+    if (!emailInput.trim()) {
+      setAuthError(lang === 'hu' ? 'Add meg azt az e-mail címet, amelyre a linket kaptad.' : 'Enter the email address that received the link.');
+      return;
+    }
+    setIsLoggingIn(true);
+    setAuthError('');
+    try {
+      await signInWithEmailLink(auth, emailInput.trim(), window.location.href);
+      localStorage.removeItem('dartisan_email_link');
+      window.history.replaceState({}, '', window.location.pathname);
+      setEmailLinkNeedsAddress(false);
+      setShowAuth(false);
+    } catch (error) {
+      console.error('Email link sign-in:', error);
+      setAuthError(lang === 'hu' ? 'A belépési link érvénytelen, lejárt, vagy nem ehhez az e-mail címhez tartozik.' : 'The sign-in link is invalid, expired, or does not match this email address.');
+    } finally { setIsLoggingIn(false); }
+  };
 
   const getAvatar = (user: DisplayUser | LeaderboardPlayer | null) => user?.selectedAvatar || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || user?.email?.split('@')[0] || 'Player'}&backgroundColor=0b0d11`;
 
@@ -308,13 +336,14 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   const closeTutorial = () => { localStorage.setItem('dartisan_tutorial_done', 'true'); setShowTutorial(false); };
   const updatePlayer = (idx: number, updates: Partial<PlayerConfig>) => { const n = [...players]; n[idx] = { ...n[idx], ...updates }; setPlayers(n); };
   const txt = t[lang];
+  const showNotice = (message: string) => setFeedback({ kind: 'notice', message });
 
   const saveMatchPreset = () => {
       const preset: MatchPreset = {
           id: crypto.randomUUID(), name: presetName.trim(), startingScore: score, setsToWin: sets,
           legsToWin: legs, checkIn, checkout, muteCaller, players: players.map(player => ({ ...player, name: player.name.trim() })),
       };
-      if (!isMatchPreset(preset)) return alert(lang === 'hu' ? 'Adj meg egy nevet, és ellenőrizd a játékosokat és szabályokat.' : 'Enter a name and check the players and rules.');
+      if (!isMatchPreset(preset)) return showNotice(lang === 'hu' ? 'Adj meg egy nevet, és ellenőrizd a játékosokat és szabályokat.' : 'Enter a name and check the players and rules.');
       const next = [preset, ...matchPresets].slice(0, 10);
       writeMatchPresets(localStorage, next);
       setMatchPresets(next);
@@ -417,7 +446,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           console.error("Login error:", error); 
           const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
           if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-              alert(code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta a Google bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Google sign-in window. Allow pop-ups or open the site in your browser.') : code === 'auth/unauthorized-domain' ? (lang === 'hu' ? 'Ez a webcím nincs engedélyezve a bejelentkezéshez. Használd a hivatalos Dartisan oldalt.' : 'This address is not authorized for sign-in. Use the official Dartisan site.') : (lang === 'hu' ? 'A Google bejelentkezés nem sikerült. Próbáld újra.' : 'Google sign-in failed. Please try again.'));
+              setAuthError(code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta a Google bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Google sign-in window. Allow pop-ups or open the site in your browser.') : code === 'auth/unauthorized-domain' ? (lang === 'hu' ? 'Ez a webcím nincs engedélyezve a bejelentkezéshez. Használd a hivatalos Dartisan oldalt.' : 'This address is not authorized for sign-in. Use the official Dartisan site.') : (lang === 'hu' ? 'A Google bejelentkezés nem sikerült. Próbáld újra.' : 'Google sign-in failed. Please try again.'));
           }
       } 
       setIsLoggingIn(false); 
@@ -432,7 +461,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           console.error("Apple Login error:", error); 
           const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
           if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-              alert(code === 'auth/operation-not-allowed' ? (lang === 'hu' ? 'Az Apple bejelentkezés jelenleg nincs bekapcsolva ehhez a projekthez.' : 'Apple sign-in is not enabled for this project.') : code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta az Apple bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Apple sign-in window. Allow pop-ups or open the site in your browser.') : (lang === 'hu' ? 'Az Apple bejelentkezés nem sikerült. Próbáld újra.' : 'Apple sign-in failed. Please try again.'));
+              setAuthError(code === 'auth/operation-not-allowed' ? (lang === 'hu' ? 'Az Apple bejelentkezés jelenleg nincs bekapcsolva ehhez a projekthez.' : 'Apple sign-in is not enabled for this project.') : code === 'auth/popup-blocked' ? (lang === 'hu' ? 'A böngésző blokkolta az Apple bejelentkezési ablakot. Engedélyezd az előugró ablakokat, vagy nyisd meg az oldalt a böngészőben.' : 'The browser blocked the Apple sign-in window. Allow pop-ups or open the site in your browser.') : (lang === 'hu' ? 'Az Apple bejelentkezés nem sikerült. Próbáld újra.' : 'Apple sign-in failed. Please try again.'));
           }
       } 
       setIsLoggingIn(false); 
@@ -441,15 +470,15 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   const handleLogout = () => { signOut(auth); setShowAuth(false); };
 
   const handleMagicLink = async () => {
-      if (!emailInput.trim()) return alert(lang === 'hu' ? 'Add meg az e-mail címedet.' : 'Enter your email address.');
+      if (!emailInput.trim()) return setAuthError(lang === 'hu' ? 'Add meg az e-mail címedet.' : 'Enter your email address.');
       setIsLoggingIn(true);
       try {
           await sendSignInLinkToEmail(auth, emailInput.trim(), { url: window.location.origin, handleCodeInApp: true });
           localStorage.setItem('dartisan_email_link', emailInput.trim());
-          alert(lang === 'hu' ? 'Elküldtük a belépési linket az e-mail címedre.' : 'We sent a sign-in link to your email.');
+          setAuthNotice(lang === 'hu' ? 'Elküldtük a belépési linket az e-mail címedre.' : 'We sent a sign-in link to your email.');
       } catch (error) {
           console.error('Magic link:', error);
-          alert(lang === 'hu' ? 'Nem sikerült elküldeni a linket. Ellenőrizd, hogy az e-mail link engedélyezve van-e a Firebase-ben.' : 'Could not send the link. Check that email-link sign-in is enabled in Firebase.');
+          setAuthError(lang === 'hu' ? 'Nem sikerült elküldeni a linket. Ellenőrizd, hogy az e-mail link engedélyezve van-e a Firebase-ben.' : 'Could not send the link. Check that email-link sign-in is enabled in Firebase.');
       } finally { setIsLoggingIn(false); }
   };
 
@@ -492,7 +521,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                   (room.data().hostUid !== user.uid && room.data().guestUid !== user.uid)) throw new Error('room-unavailable');
           } catch (error) {
               console.error('Online resume failed', error);
-              alert(lang === 'hu' ? 'A meccs folytatásához ugyanazzal a fiókkal jelentkezz be, és ellenőrizd, hogy a szoba még elérhető-e.' : 'Sign in with the same account and make sure the room is still available.');
+              showNotice(lang === 'hu' ? 'A meccs folytatásához ugyanazzal a fiókkal jelentkezz be, és ellenőrizd, hogy a szoba még elérhető-e.' : 'Sign in with the same account and make sure the room is still available.');
               return;
           }
       }
@@ -522,7 +551,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           setHostedCode(code); 
       } catch (error) { 
           console.error("Error creating match:", error); 
-          alert("Hiba a szoba létrehozásakor."); 
+          showNotice(lang === 'hu' ? 'Hiba a szoba létrehozásakor.' : 'Could not create the room.');
       }
       setIsCreatingMatch(false);
   };
@@ -539,7 +568,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           setHostedCode(null);
       } catch (error) {
           console.error('Cancel hosted match:', error);
-          alert(lang === 'hu' ? 'A szoba törlése nem sikerült. Próbáld újra.' : 'Could not delete the room. Please try again.');
+          showNotice(lang === 'hu' ? 'A szoba törlése nem sikerült. Próbáld újra.' : 'Could not delete the room. Please try again.');
       }
   };
 
@@ -572,7 +601,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           });
       } catch (error) { 
           console.error("Error joining:", error); 
-          alert(error instanceof Error && error.message === 'room-unavailable' ? txt.roomFull : lang === 'hu' ? 'A szoba nem található vagy nem lehet csatlakozni.' : 'Room not found or could not be joined.');
+          showNotice(error instanceof Error && error.message === 'room-unavailable' ? txt.roomFull : lang === 'hu' ? 'A szoba nem található vagy nem lehet csatlakozni.' : 'Room not found or could not be joined.');
       }
       setIsJoiningMatch(false);
   };
@@ -642,7 +671,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
               <p className="text-slate-400 text-sm font-bold mb-8 max-w-xs">{currentUser ? 'Sikeresen bejelentkeztél!' : txt.loginDesc}</p>
               
               <div className="w-full max-w-sm flex flex-col gap-3">
-                  {currentUser ? (
+                  {currentUser && !emailLinkNeedsAddress ? (
                       <>
                         <div className="bg-slate-900/80 p-6 rounded-2xl border border-emerald-500/30 flex flex-col items-center mb-4">
                             <img src={getAvatar(currentUser)} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=Fallback&backgroundColor=0b0d11' }} className="w-20 h-20 rounded-full border-4 border-[#0b0d11] mb-4 bg-slate-800" alt="avatar" />
@@ -654,6 +683,8 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                   ) : (
                       <>
                         <input type="email" autoComplete="email" placeholder="Email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors" />
+                        {emailLinkNeedsAddress && <p className="text-left text-xs font-semibold text-cyan-200">{lang === 'hu' ? 'A belépési linket másik eszközön nyitottad meg. Add meg pontosan azt az e-mail-címet, amelyre a linket kaptad.' : 'You opened the sign-in link on another device. Enter the exact email address that received the link.'}</p>}
+                        {emailLinkNeedsAddress && <button type="button" onClick={completeEmailLink} disabled={isLoggingIn} className="h-14 bg-cyan-500 text-slate-950 rounded-xl font-black uppercase tracking-wider text-xs disabled:opacity-50">{lang === 'hu' ? 'Belépés az e-mailes linkkel' : 'Complete email link sign-in'}</button>}
                         <div className="relative">
                             <input type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder={txt.password} value={passwordInput} onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} onKeyDown={(e) => e.key === 'Enter' && handleEmailLogin()} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors pr-12" />
                             <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? (lang === 'hu' ? 'Jelszó elrejtése' : 'Hide password') : (lang === 'hu' ? 'Jelszó megjelenítése' : 'Show password')} className="absolute right-4 top-4 text-slate-500 hover:text-white">
@@ -791,7 +822,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                 gameMode: 'x01', 
                 players: [
                     players[0], 
-                    { name: 'AI Haladó', isBot: true, difficulty: 5, color: 'purple' } 
+                    { name: lang === 'hu' ? 'AI Haladó' : 'Advanced AI', isBot: true, difficulty: 5, color: 'purple' }
                 ], 
                 startingScore: 501, 
                 setsToWin: 1, 
@@ -818,7 +849,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
             {onOpenCoach && (
                 <button onClick={onOpenCoach} className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border bg-[#12141a] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 shadow-[0_0_10px_rgba(6,182,212,0.15)] flex items-center justify-center">
-                    {lang === 'hu' ? 'AI Edző' : 'AI Coach'}
+                    {lang === 'hu' ? 'Edzéstervező' : 'Training planner'}
                 </button>
             )}
           </div>
@@ -837,6 +868,17 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
       </section>
 
       <div className={`w-full min-w-0 bg-[#12141a] rounded-[2rem] p-5 sm:p-6 lg:p-8 border border-slate-800 shadow-2xl flex flex-col mb-8 ${tab === 'x01' || tab === 'challenge' ? '' : 'lg:max-w-4xl lg:mx-auto'}`}>
+        {tab === 'x01' && (
+          <div className="hidden lg:flex items-center justify-between gap-5 border-b border-slate-800 pb-5 mb-6">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">{lang === 'hu' ? 'Saját mérkőzés' : 'Custom match'}</p>
+              <p className="text-sm text-slate-400 mt-1">{lang === 'hu' ? 'Állítsd be a szabályokat, majd indítsd a meccset.' : 'Set the rules, then start the match.'}</p>
+            </div>
+            <button type="button" onClick={() => onStart({ gameMode: 'x01', players, startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout, muteCaller })} className="h-12 shrink-0 rounded-xl bg-emerald-500 px-6 text-slate-950 text-sm font-black uppercase tracking-wide hover:bg-emerald-400 active:scale-95">
+              {lang === 'hu' ? 'Meccs indítása' : 'Start match'}
+            </button>
+          </div>
+        )}
         
         {(tab === 'x01' || tab === 'challenge') && (
           <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-x-10">
@@ -1166,6 +1208,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
         )}
       </div>
       </div>
+      <AppFeedback feedback={feedback} lang={lang} onClose={() => setFeedback(null)} />
     </div>
   );
 }

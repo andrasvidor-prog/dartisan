@@ -48,20 +48,21 @@ const arc = (cx: number, cy: number, inner: number, outer: number, start: number
     return `M ${a.x} ${a.y} A ${outer} ${outer} 0 ${large} 0 ${b.x} ${b.y} L ${d.x} ${d.y} A ${inner} ${inner} 0 ${large} 1 ${c.x} ${c.y} Z`;
 };
 
-export function HeatmapLegend({ metric = 'hits' }: { metric?: 'hits' | 'accuracy' }) {
-    return <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[10px] font-bold text-slate-300" aria-label={metric === 'accuracy' ? 'Célzási arány színenként' : 'Találatok száma színenként'}>
+export function HeatmapLegend({ metric = 'hits', lang = 'hu' }: { metric?: 'hits' | 'accuracy'; lang?: 'hu' | 'en' }) {
+    return <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[10px] font-bold text-slate-300" aria-label={metric === 'accuracy' ? (lang === 'hu' ? 'Célzási arány színenként' : 'Aiming accuracy by color') : (lang === 'hu' ? 'Találatok száma színenként' : 'Hit count by color')}>
         {(metric === 'accuracy' ? accuracyBands : heatmapBands).map(band => <span key={band.label} className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm border border-white/15" style={{ backgroundColor: band.color }} />{band.label}</span>)}
-        <span className="text-slate-500">{metric === 'accuracy' ? 'pontosság' : 'találat'}</span>
+        <span className="text-slate-500">{metric === 'accuracy' ? (lang === 'hu' ? 'pontosság' : 'accuracy') : (lang === 'hu' ? 'találat' : 'hits')}</span>
     </div>;
 }
 
-export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSector, metric = 'hits', accuracy = {} }: {
+export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSector, metric = 'hits', accuracy = {}, lang = 'hu' }: {
     data: HeatmapData;
     filter?: HeatmapFilter;
     selectedSector?: string | null;
     onSelectSector?: (sector: string) => void;
     metric?: 'hits' | 'accuracy';
     accuracy?: Record<string, AimStat>;
+    lang?: 'hu' | 'en';
 }) {
     const center = 160;
     const angle = 18;
@@ -81,7 +82,7 @@ export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSec
             className: interactive ? 'cursor-pointer hover:brightness-125 transition-[filter]' : undefined,
             role: accessible ? 'button' : undefined,
             tabIndex: accessible ? 0 : undefined,
-            'aria-label': accessible ? (metric === 'accuracy' ? `${key}: ${rate}% pontosság, ${attempts} kísérlet` : `${key}: ${hits} találat`) : undefined,
+            'aria-label': accessible ? (metric === 'accuracy' ? (lang === 'hu' ? `${key}: ${rate}% pontosság, ${attempts} kísérlet` : `${key}: ${rate}% accuracy, ${attempts} attempts`) : (lang === 'hu' ? `${key}: ${hits} találat` : `${key}: ${hits} hits`)) : undefined,
             'aria-hidden': accessible ? undefined : true,
             onClick: interactive ? () => onSelectSector?.(key) : undefined,
             onKeyDown: accessible ? (event: KeyboardEvent<SVGElement>) => {
@@ -91,7 +92,7 @@ export function HeatmapBoard({ data, filter = 'all', selectedSector, onSelectSec
     };
     const segment = (key: string, path: string, emptyColor: string, keyboard = true) => <path key={path} d={path} {...sectorAttributes(key, emptyColor, keyboard)} />;
 
-    return <svg viewBox="0 0 320 320" aria-label={metric === 'accuracy' ? 'Szektoronként mért célzási pontosság' : 'Szektoronként rögzített találatok térképe'} className="block h-auto w-full max-w-[560px] mx-auto drop-shadow-[0_16px_30px_rgba(0,0,0,0.35)]">
+    return <svg viewBox="0 0 320 320" aria-label={metric === 'accuracy' ? (lang === 'hu' ? 'Szektoronként mért célzási pontosság' : 'Aiming accuracy by sector') : (lang === 'hu' ? 'Szektoronként rögzített találatok térképe' : 'Recorded hits by sector')} className="block h-auto w-full max-w-[560px] mx-auto drop-shadow-[0_16px_30px_rgba(0,0,0,0.35)]">
         <circle cx={center} cy={center} r="158" fill="#0b0d11" />
         {BOARD_ORDER.map((number, index) => {
             const start = index * angle - angle / 2;

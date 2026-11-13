@@ -12,6 +12,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { parseLocalBackup } from '../lib/backup';
+import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 
 const LABELS = {
     hu: {
@@ -171,6 +172,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
     const [cloudExporting, setCloudExporting] = useState(false);
     const [signedIn, setSignedIn] = useState(false);
     const [deletingAccount, setDeletingAccount] = useState(false);
+    const [feedback, setFeedback] = useState<AppFeedbackState | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => onAuthStateChanged(auth, user => setSignedIn(!!user && !user.isAnonymous)), []);
@@ -232,7 +234,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
         if (typeof window === 'undefined') return;
         const fastArr = fastBtns.split(',').map(s => Number(s.trim()));
         if (fastArr.length !== 3 || !fastArr.every(n => Number.isInteger(n) && n >= 0 && n <= 180)) {
-            alert(lang === 'hu' ? 'Adj meg pontosan három egész számot 0 és 180 között.' : 'Enter exactly three whole numbers between 0 and 180.');
+            setFeedback({ kind: 'notice', message: lang === 'hu' ? 'Adj meg pontosan három egész számot 0 és 180 között.' : 'Enter exactly three whole numbers between 0 and 180.' });
             return;
         }
         // localStorage
@@ -299,7 +301,7 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
             }, `dartisan_cloud_${new Date().toISOString().split('T')[0]}.json`);
         } catch (error) {
             console.error('Cloud export failed', error);
-            alert(txt.cloudExportError);
+            setFeedback({ kind: 'notice', message: txt.cloudExportError });
         } finally {
             setCloudExporting(false);
         }
@@ -307,28 +309,29 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file=e.target.files?.[0]; if(!file) return;
-        if (file.size > 2_500_000) { alert(txt.errorImport); e.target.value = ''; return; }
+        if (file.size > 2_500_000) { setFeedback({ kind: 'notice', message: txt.errorImport }); e.target.value = ''; return; }
         const reader=new FileReader();
         reader.onload=ev=>{
             try {
                 const data = parseLocalBackup(JSON.parse(ev.target?.result as string));
                 Object.entries(data).forEach(([key, value]) => localStorage.setItem(key, value));
-                alert(txt.successImport); window.location.reload();
-            } catch { alert(txt.errorImport); e.target.value = ''; }
+                window.location.reload();
+            } catch { setFeedback({ kind: 'notice', message: txt.errorImport }); e.target.value = ''; }
         };
         reader.readAsText(file);
     };
 
-    const handleReset = () => {
-        if (!window.confirm(txt.confirmReset)) return;
+    const performReset = () => {
         const keys=[];
         for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.startsWith('dartisan_'))keys.push(k);}
         keys.forEach(k=>localStorage.removeItem(k));
-        alert(txt.resetDone); window.location.reload();
+        window.location.reload();
     };
 
-    const handleAccountDelete = async () => {
-        if (!signedIn || !window.confirm(txt.accountDeleteConfirm)) return;
+    const handleReset = () => setFeedback({ kind: 'confirm', message: txt.confirmReset, onConfirm: performReset, confirmLabel: txt.dangerBtn });
+
+    const performAccountDelete = async () => {
+        if (!signedIn) return;
         setDeletingAccount(true);
         try {
             const deleteAccount = httpsCallable<{ confirm: string }, { deleted: boolean }>(functions, 'deleteMyAccount');
@@ -340,10 +343,12 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
             window.location.reload();
         } catch (error) {
             console.error('Account deletion failed', error);
-            alert(txt.accountDeleteError);
+            setFeedback({ kind: 'notice', message: txt.accountDeleteError });
             setDeletingAccount(false);
         }
     };
+
+    const handleAccountDelete = () => setFeedback({ kind: 'confirm', message: txt.accountDeleteConfirm, onConfirm: performAccountDelete, confirmLabel: txt.accountDeleteBtn });
 
     const TABS = txt.tabs;
     const THEME_OPTS = [
@@ -356,10 +361,11 @@ export function SettingsScreen({ onBack, onLanguageChange }: SettingsScreenProps
 
     return (
         <div className="fixed inset-0 z-[200] bg-[#0b0d11] text-slate-200 flex flex-col h-[100dvh]">
+            <AppFeedback feedback={feedback} lang={lang} onClose={() => setFeedback(null)} />
 
             {/* Header */}
             <div className="flex items-center justify-between px-4 pb-4 pt-[calc(1rem+var(--app-safe-top))] bg-[#12141a] border-b border-slate-800 shrink-0">
-                <button onClick={onBack} aria-label="Vissza" className="p-2.5 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all">
+                <button onClick={onBack} aria-label={lang === 'hu' ? 'Vissza' : 'Back'} className="p-2.5 bg-slate-800 rounded-full hover:bg-slate-700 active:scale-95 transition-all">
                     <ArrowLeftIcon className="h-5 w-5"/>
                 </button>
                 <div className="flex items-center gap-2">

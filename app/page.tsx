@@ -194,6 +194,7 @@ export default function Home() {
 
       {showTournament && (
         <TournamentScreen 
+          lang={lang}
           onBack={() => setShowTournament(false)}
           onStartTournament={(config) => {
               setShowTournament(false);
@@ -254,6 +255,7 @@ export default function Home() {
 
       {currentScreen === 'custom_tournament' && tournamentConfig && (
         <TournamentBracket
+          lang={lang}
           config={tournamentConfig}
           liveMatchResult={matchResult} 
           onBack={() => setCurrentScreen('setup')}
@@ -268,6 +270,7 @@ export default function Home() {
 
       {currentScreen === 'coach' && (
         <AiCoach
+          lang={lang}
           onBack={() => setCurrentScreen('setup')}
           onStartDrill={(drillConfig) => {
               setMatchConfig(drillConfig);
@@ -278,7 +281,7 @@ export default function Home() {
       )}
 
       {currentScreen === 'profile' && (
-        <ProfileScreen onBack={() => setCurrentScreen('setup')} />
+        <ProfileScreen lang={lang} onBack={() => setCurrentScreen('setup')} />
       )}
     </main>
   );

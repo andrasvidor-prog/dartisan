@@ -151,6 +151,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
                     const isActive = p.id === activePlayer;
                     return (
                         <div key={p.id} className={`flex flex-col items-center p-2 rounded-2xl border-2 transition-all ${isActive ? cc : 'border-slate-800 bg-slate-900/40 text-slate-300'}`}>
+                            <span aria-hidden={!isActive} className={`h-3 text-[9px] font-black uppercase tracking-widest ${isActive ? 'opacity-100' : 'opacity-0'}`}>{lang === 'hu' ? 'Soron' : 'Throwing'}</span>
                             <span className="text-[9px] font-black uppercase tracking-widest truncate w-full text-center">
                                 {p.name}
                             </span>

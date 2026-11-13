@@ -1,7 +1,7 @@
 // 1. RÉSZ - MatchScreen.tsx (Kérd a folytatást a következő üzenetben!)
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { 
     BackspaceIcon, TrophyIcon, ChartBarIcon, BoltIcon, XMarkIcon, 
     ComputerDesktopIcon, InformationCircleIcon, CheckCircleIcon, 
@@ -21,6 +21,7 @@ import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
 import { isSector, normalizeHeatmapData, type HeatmapData } from '../lib/heatmap';
 import { applyHeatmapEvent, enqueueHeatmapEvent, flushHeatmapQueue, hunterHeatmapEvent, matchHeatmapEvent, reverseHeatmapEvent, type HeatmapEvent } from '../lib/heatmapSync';
 import type { MatchConfig } from './SetupScreen';
+import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 
 export type Dart = { val: number; mult: number; heatmapEvent?: HeatmapEvent };
 const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
@@ -120,12 +121,47 @@ const InteractiveDartboard = ({
     onDartSelect,
     currentDarts = [],
     playerColor  = 'emerald',
+    lang,
 }: {
     onDartSelect: (val: number, mult: number) => void;
     currentDarts?: Dart[];
     playerColor?: string;
+    lang: Language;
 }) => {
     const C = 150, SA = 18;
+    const [keyboardSectorIndex, setKeyboardSectorIndex] = useState(0);
+    const [keyboardRing, setKeyboardRing] = useState(1);
+    const [keyboardSpecial, setKeyboardSpecial] = useState<'sector' | 'bull' | 'dbull' | 'miss'>('sector');
+    const [keyboardFocused, setKeyboardFocused] = useState(false);
+    const keyboardNumber = DARTBOARD_ORDER[keyboardSectorIndex];
+    const ringMultiplier = [1, 3, 1, 2][keyboardRing];
+    const keyboardTarget = keyboardSpecial === 'bull' ? (lang === 'hu' ? 'Külső bull, 25' : 'Outer bull, 25')
+      : keyboardSpecial === 'dbull' ? (lang === 'hu' ? 'Belső bull, 50' : 'Inner bull, 50')
+      : keyboardSpecial === 'miss' ? (lang === 'hu' ? 'Mellé' : 'Miss')
+      : `${lang === 'hu' ? ['Belső sima', 'Tripla', 'Külső sima', 'Dupla'][keyboardRing] : ['Inner single', 'Triple', 'Outer single', 'Double'][keyboardRing]} ${keyboardNumber}`;
+    const handleBoardKeyDown = (event: ReactKeyboardEvent<SVGSVGElement>) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            setKeyboardSpecial('sector');
+            setKeyboardSectorIndex(index => (index + (event.key === 'ArrowRight' ? 1 : 19)) % 20);
+        } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            setKeyboardSpecial('sector');
+            setKeyboardRing(ring => (ring + (event.key === 'ArrowDown' ? 1 : 3)) % 4);
+        } else if (event.key.toLowerCase() === 'b') {
+            event.preventDefault();
+            setKeyboardSpecial(event.shiftKey ? 'dbull' : 'bull');
+        } else if (event.key.toLowerCase() === 'm') {
+            event.preventDefault();
+            setKeyboardSpecial('miss');
+        } else if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            if (keyboardSpecial === 'miss') onDartSelect(0, 1);
+            else if (keyboardSpecial === 'bull') onDartSelect(25, 1);
+            else if (keyboardSpecial === 'dbull') onDartSelect(25, 2);
+            else onDartSelect(keyboardNumber, ringMultiplier);
+        }
+    };
     const hex = playerColor === 'rose'   ? '#fb7185'
               : playerColor === 'cyan'   ? '#22d3ee'
               : playerColor === 'amber'  ? '#fbbf24'
@@ -146,7 +182,7 @@ const InteractiveDartboard = ({
     });
 
     return (
-        <svg viewBox="0 0 300 300" className="drop-shadow-2xl block h-auto max-w-full mx-auto select-none overflow-visible" style={{ width: 'min(100%, calc(100dvh - 250px), 900px)' }}>
+        <svg viewBox="0 0 300 300" role="button" tabIndex={0} aria-label={`${keyboardTarget}. ${lang === 'hu' ? 'Balra és jobbra szektor, fel és le gyűrű, B bull, Shift+B belső bull, M mellé, Enter dobás.' : 'Left and right change sector, up and down change ring, B bull, Shift+B inner bull, M miss, Enter to throw.'}`} onKeyDown={handleBoardKeyDown} onFocus={() => setKeyboardFocused(true)} onBlur={() => setKeyboardFocused(false)} className="drop-shadow-2xl block h-auto max-w-full mx-auto select-none overflow-visible focus:outline-none" style={{ width: 'min(100%, calc(100dvh - 250px), 900px)' }}>
             {/* Background / miss zone */}
             <circle cx={C} cy={C} r={148} fill="#0b0d11" onClick={() => onDartSelect(0,1)} className="cursor-pointer hover:fill-slate-900 transition-colors" />
 
@@ -183,6 +219,11 @@ const InteractiveDartboard = ({
             {bullHit  && <circle cx={C} cy={C} r={15}   fill={hex} opacity="0.55" pointerEvents="none"/>}
             {dbullHit && <circle cx={C} cy={C} r={6.35} fill={hex} opacity="0.8"  pointerEvents="none"/>}
 
+            {keyboardFocused && keyboardSpecial === 'sector' && <path d={describeArc(C, C, [15, 80, 90, 125][keyboardRing], [80, 90, 125, 135][keyboardRing], keyboardSectorIndex * SA - SA / 2, keyboardSectorIndex * SA + SA / 2)} fill="none" stroke="#22d3ee" strokeWidth="2.5" pointerEvents="none" />}
+            {keyboardFocused && keyboardSpecial === 'bull' && <circle cx={C} cy={C} r={15} fill="none" stroke="#22d3ee" strokeWidth="2.5" pointerEvents="none" />}
+            {keyboardFocused && keyboardSpecial === 'dbull' && <circle cx={C} cy={C} r={6.35} fill="none" stroke="#22d3ee" strokeWidth="2.5" pointerEvents="none" />}
+            {keyboardFocused && keyboardSpecial === 'miss' && <circle cx={C} cy={C} r={147} fill="none" stroke="#22d3ee" strokeWidth="2.5" pointerEvents="none" />}
+
             {/* Dart index badges */}
             {currentDarts.map((d, di) => {
                 const pos = tvDartCoord(d.val, d.mult, di);
@@ -197,13 +238,13 @@ const InteractiveDartboard = ({
     );
 };
 
-const StaminaChart = ({ averages, color }: { averages: number[], color: string }) => {
-    if (!averages || averages.length === 0) return <p className="text-[9px] text-slate-500 uppercase font-bold text-center mt-3">Nincs elég leg a görbéhez</p>;
+const StaminaChart = ({ averages, color, lang }: { averages: number[], color: string, lang: Language }) => {
+    if (!averages || averages.length === 0) return <p className="text-[9px] text-slate-500 uppercase font-bold text-center mt-3">{lang === 'hu' ? 'Nincs elég leg a görbéhez' : 'Not enough legs for a trend yet'}</p>;
     const hexColor = color === 'emerald' ? '#34d399' : color === 'rose' ? '#fb7185' : color === 'cyan' ? '#22d3ee' : color === 'amber' ? '#fbbf24' : color === 'purple' ? '#b655ff' : '#34d399';
     if (averages.length === 1) {
         return (
             <div className="w-full h-24 relative mt-3 bg-slate-950/50 rounded-xl border border-slate-800 p-2 pt-5 flex items-center justify-center">
-                <span className="absolute top-2 left-3 text-[8px] font-black text-slate-500 uppercase tracking-widest">Stamina Görbe (Átlag / Leg)</span>
+                <span className="absolute top-2 left-3 text-[8px] font-black text-slate-500 uppercase tracking-widest">{lang === 'hu' ? 'Átlag alakulása / leg' : 'Average by leg'}</span>
                 <div className="flex flex-col items-center">
                     <div className="w-4 h-4 rounded-full" style={{backgroundColor: hexColor}}></div>
                     <span className="text-xl font-mono font-black text-white mt-1">{averages[0]}</span>
@@ -222,7 +263,7 @@ const StaminaChart = ({ averages, color }: { averages: number[], color: string }
 
     return (
         <div className="w-full h-32 relative mt-3 bg-slate-950/50 rounded-xl border border-slate-800 p-2 overflow-visible">
-            <span className="absolute top-2 left-3 text-[8px] font-black text-slate-500 uppercase tracking-widest">Stamina Görbe (Átlag / Leg)</span>
+            <span className="absolute top-2 left-3 text-[8px] font-black text-slate-500 uppercase tracking-widest">{lang === 'hu' ? 'Átlag alakulása / leg' : 'Average by leg'}</span>
             <div className="absolute top-10 bottom-6 left-6 right-6">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
                     <polyline points={points} fill="none" stroke={hexColor} strokeWidth="3" className="opacity-70" />
@@ -355,6 +396,7 @@ interface MatchScreenProps {
 }
 
 export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch, lang }: MatchScreenProps) {
+  const [feedback, setFeedback] = useState<AppFeedbackState | null>(null);
   const txt = t[lang];
   const isAsync = config.gameMode === 'challenge' && !!config.challengeCode;
   const role = config.localRole || 'host'; 
@@ -602,6 +644,12 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       const avg = ((player.totalPoints / (player.totalDarts || 1)) * 3).toFixed(1);
       const first9Avg = ((player.first9Points / (player.first9Darts || 1)) * 3).toFixed(1);
       const checkoutPct = player.checkoutAttempts > 0 ? Math.round((player.checkoutSuccess / player.checkoutAttempts) * 100) : 0;
+      if (lang === 'en') {
+          const scoring = parseFloat(avg) > 60 ? `Strong scoring (${avg} average). ` : parseFloat(avg) < 40 ? `Your scoring can improve (${avg} average). ` : 'Steady, balanced scoring. ';
+          const opening = parseFloat(first9Avg) > parseFloat(avg) + 12 ? `Your opening nine darts were strong (${first9Avg}), but the pace dropped later. ` : '';
+          const checkout = checkoutPct >= 35 ? `Excellent checkout accuracy (${checkoutPct}%).` : checkoutPct > 0 && checkoutPct < 15 ? `Checkout accuracy needs work (${checkoutPct}%). Try Bob's 27.` : '';
+          return scoring + opening + checkout;
+      }
       let text = '';
       if (parseFloat(avg) > 60) text += `Erőteljes tömegdobás (${avg} átlag). `;
       else if (parseFloat(avg) < 40) text += `A tömegeken van még mit javítani (${avg} átlag). `;
@@ -1379,7 +1427,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           onBackToSetup();
       } catch (error) {
           console.error('Room deletion failed', error);
-          alert(lang === 'hu' ? 'A szoba törlése nem sikerült. Próbáld újra.' : 'Could not delete the room. Please try again.');
+          setFeedback({ kind: 'notice', message: lang === 'hu' ? 'A szoba törlése nem sikerült. Próbáld újra.' : 'Could not delete the room. Please try again.' });
       }
   };
 
@@ -1418,12 +1466,22 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         try { await navigator.share({ title: isHu ? 'Dartisan Meccs Eredmény' : 'Dartisan Match Result', text: text, }); } 
         catch (error) { console.log("Megosztás megszakítva vagy hiba történt.", error); }
     } else {
-        navigator.clipboard.writeText(text); alert(isHu ? "Eredmény a vágólapra másolva!" : "Result copied to clipboard!");
+        try {
+          await navigator.clipboard.writeText(text);
+          setFeedback({ kind: 'notice', message: isHu ? 'Eredmény a vágólapra másolva!' : 'Result copied to clipboard!' });
+        } catch {
+          setFeedback({ kind: 'notice', message: isHu ? 'A másolás nem sikerült. Ellenőrizd a böngésző engedélyeit.' : 'Could not copy the result. Check browser permissions.' });
+        }
     }
   };
 
   const displayPlayers = players;
   const safePlayer = players[activePlayer] || players[0];
+  const pendingFastPoints = inputMode === 'fast' && !safePlayer?.isBot && /^\d{1,3}$/.test(input) ? Number(input) : null;
+  const fastPreviewRemaining = pendingFastPoints !== null && canScoreInDarts(pendingFastPoints, 3)
+      && safePlayer && safePlayer.score - pendingFastPoints >= 0
+      && (config.checkout === 'single' || safePlayer.score - pendingFastPoints !== 1)
+      ? safePlayer.score - pendingFastPoints : null;
   const lastCompletedPlayer = isAsync || players.length === 1
       ? safePlayer
       : players[(activePlayer - 1 + players.length) % players.length];
@@ -1438,14 +1496,16 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const colBg = activeColorTheme.split(' ')[3] || 'bg-emerald-500';
 
   const isBotTurn = safePlayer?.isBot && !isAsync;
-  const activeRemaining = safePlayer ? displayedRemaining(safePlayer, activePlayer, currentDarts, config) : 0;
+  const activeRemaining = fastPreviewRemaining ?? (safePlayer ? displayedRemaining(safePlayer, activePlayer, currentDarts, config) : 0);
   const isStandalonePractice = config.gameMode === 'practice' && (config.practiceType === 'hunter' || config.practiceType === 'math');
   const practiceName = config.practiceType === 'around' ? 'Around Clock' : config.practiceType === 'bobs27' ? "Bob's 27" : config.practiceType === '121' ? '121 Challenge' : config.practiceType === 'hunter' ? (lang === 'hu' ? 'Célpont vadász' : 'Target Hunter') : config.practiceType === 'math' ? 'Darts Math' : (lang === 'hu' ? 'AI edzés' : 'AI drill');
+  const recordedSectorHits = Object.values(normalizeHeatmapData(fullHeatmapData)).reduce((total, entry) => total + entry.hits, 0);
 
   const recObj = getCheckoutTable(activeRemaining, 3 - currentDarts.length);
 
   return (
     <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-[calc(1rem+var(--app-safe-top))]">
+      <AppFeedback feedback={feedback} lang={lang} onClose={() => setFeedback(null)} />
       <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto mb-2 flex items-center justify-between shrink-0">
         <div className="text-[10px] sm:text-xs font-black tracking-[0.2em] text-emerald-400 uppercase">Dartisan <span className="text-slate-500">· {config.gameMode === 'challenge' ? (lang === 'hu' ? 'Online meccs' : 'Online match') : (lang === 'hu' ? 'Mérkőzés' : 'Match')}</span></div>
         <div className="flex items-center gap-2">
@@ -1463,7 +1523,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               return (
                   <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[110px] sm:min-h-[124px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
                       <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
-                      <span className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : displayedRemaining(pl, activePlayer, currentDarts, config)}</span>
+                      <span aria-label={pl.id === activePlayer && fastPreviewRemaining !== null ? (lang === 'hu' ? `Előnézet: ${fastPreviewRemaining} pont marad` : `Preview: ${fastPreviewRemaining} points remaining`) : undefined} className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.id === activePlayer && fastPreviewRemaining !== null ? fastPreviewRemaining : displayedRemaining(pl, activePlayer, currentDarts, config)}</span>
                       <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{config.gameMode === 'practice' ? practiceName : <>{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</>}</span>
                       {config.gameMode !== 'practice' && <span className="text-[10px] sm:text-xs font-bold text-slate-400 tabular-nums">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}: <span className="text-white font-black">{pl.lastVisit ?? '—'}</span></span>}
                   </div>
@@ -1512,7 +1572,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         {/* Mode selector */}
         <div className="flex gap-2 w-full mb-3 shrink-0">
             <button onClick={() => setInputMode('detailed')} disabled={currentDarts.length > 0 && inputMode !== 'detailed'} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all disabled:opacity-40 ${inputMode === 'detailed' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Pro</button>
-            <button onClick={() => setInputMode('board')} disabled={currentDarts.length > 0 && inputMode !== 'board'} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all disabled:opacity-40 ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>Tábla</button>
+            <button onClick={() => setInputMode('board')} disabled={currentDarts.length > 0 && inputMode !== 'board'} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all disabled:opacity-40 ${inputMode === 'board'    ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>{lang === 'hu' ? 'Tábla' : 'Board'}</button>
             <button onClick={() => setInputMode('fast')} disabled={config.checkIn !== 'single' || config.gameMode === 'practice' || currentDarts.length > 0 && inputMode !== 'fast'} title={config.gameMode === 'practice' ? (lang === 'hu' ? 'Az edzéshez nyilankénti bevitel szükséges' : 'Training requires dart-by-dart input') : config.checkIn !== 'single' ? (lang === 'hu' ? 'Dupla vagy Master beszállónál nyilankénti bevitel szükséges' : 'Dart-by-dart input is required for double or Master entry') : undefined} className={`flex-1 py-2.5 sm:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase border transition-all ${inputMode === 'fast' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-950 text-slate-600 border-slate-800'} disabled:opacity-40 disabled:cursor-not-allowed`}>Fast</button>
         </div>
 
@@ -1590,6 +1650,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                     onDartSelect={(val, mult) => handleDartPress(val, mult)}
                     currentDarts={currentDarts}
                     playerColor={safePlayer?.color}
+                    lang={lang}
                 />
             </div>
             </div>
@@ -1690,7 +1751,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 <HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} />
             </div>
             
-            <TrophyIcon className="h-24 w-24 text-amber-400 mb-3 mt-4 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)] shrink-0 z-10" />
+            <TrophyIcon className="h-24 w-24 text-[#b655ff] mb-3 mt-4 drop-shadow-[0_0_20px_rgba(182,85,255,0.5)] shrink-0 z-10" />
             <h2 className="text-4xl sm:text-5xl font-black text-white mb-2 uppercase italic tracking-tighter leading-none z-10 text-center">
                 {config.gameMode === 'career' && matchWinnerPlayer?.id === 0 ? txt.careerWon : txt.matchShot}
             </h2>
@@ -1705,8 +1766,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                     <button onClick={() => onMatchComplete ? onMatchComplete(players) : handleExit()} className="min-h-12 rounded-xl bg-[#b655ff] text-white text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2">{lang === 'hu' ? 'Következő' : 'Next'} <ForwardIcon className="h-4 w-4" /></button>
                 ) : (
                     <>
-                        {onRematch && !isAsync && <button onClick={onRematch} className="min-h-12 rounded-xl bg-emerald-500 text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2"><ArrowPathIcon className="h-4 w-4" /> Újrajátszás</button>}
-                        <button onClick={handleShareMatch} className={`min-h-12 rounded-xl ${winnerColorTheme.split(' ')[3]} text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2`}><ShareIcon className="h-4 w-4" /> Megosztás</button>
+                        {onRematch && !isAsync && <button onClick={onRematch} className="min-h-12 rounded-xl bg-emerald-500 text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2"><ArrowPathIcon className="h-4 w-4" /> {lang === 'hu' ? 'Újrajátszás' : 'Rematch'}</button>}
+                        <button onClick={handleShareMatch} className={`min-h-12 rounded-xl ${winnerColorTheme.split(' ')[3]} text-slate-950 text-xs sm:text-sm font-black uppercase flex items-center justify-center gap-2`}><ShareIcon className="h-4 w-4" /> {lang === 'hu' ? 'Megosztás' : 'Share'}</button>
                         <button onClick={handleCSVExport} className="min-h-12 rounded-xl bg-slate-700 text-white text-xs sm:text-sm font-black uppercase">CSV export</button>
                     </>
                 )}
@@ -1737,18 +1798,18 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-center">
                              <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">{lang === 'hu' ? 'Max kiszálló' : 'Highest checkout'}</span>
-                             <span className="text-lg sm:text-xl font-mono font-black text-amber-400">{pl.highestCheckout > 0 ? pl.highestCheckout : '-'}</span>
+                             <span className="text-lg sm:text-xl font-mono font-black text-cyan-400">{pl.highestCheckout > 0 ? pl.highestCheckout : '-'}</span>
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-center">
                              <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase mb-1">{lang === 'hu' ? 'Legjobb leg' : 'Best leg'}</span>
-                             <span className="text-lg sm:text-xl font-mono font-black text-cyan-400">{(pl.bestLegDarts || 0) > 0 ? `${pl.bestLegDarts} ${lang === 'hu' ? 'nyíl' : 'darts'}` : '-'}</span>
+                             <span className="text-lg sm:text-xl font-mono font-black text-cyan-400">{(pl.bestLegDarts || 0) > 0 ? `${pl.bestLegDarts} ${lang === 'hu' ? 'nyíl' : pl.bestLegDarts === 1 ? 'dart' : 'darts'}` : '-'}</span>
                          </div>
                          <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2">
                              <span className="text-lg sm:text-xl font-mono font-black text-rose-500">{pl.count180}</span>
                              <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">x 180</span>
                          </div>
                      </div>
-                     <StaminaChart averages={pl.legAverages} color={pl.color} />
+                     <StaminaChart averages={pl.legAverages} color={pl.color} lang={lang} />
                    </div>
                  ))}
               </div>
@@ -1763,8 +1824,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               
               <div className="w-full flex flex-col items-center justify-center border border-slate-800 rounded-3xl p-4 sm:p-6 bg-slate-950/50">
                   <h3 className="text-xs font-black text-cyan-300 uppercase tracking-widest mb-4 text-center">{lang === 'hu' ? 'Személyes találati térkép' : 'Personal hit map'}</h3>
-                  <div className="w-full max-w-[360px]"><HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} /></div>
-                  <div className="mt-4"><HeatmapLegend /></div>
+                  <div className="w-full max-w-[360px]"><HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} lang={lang} /></div>
+                  <div className="mt-4"><HeatmapLegend lang={lang} /></div>
+                  {recordedSectorHits === 0 && <p role="status" className="text-xs text-cyan-200 text-center mt-3 max-w-sm">{lang === 'hu' ? 'Ehhez a meccshez nincs szektoronként rögzített találat. A Fast bevitel csak az összpontszámot menti; a találati térképhez válaszd a Pro vagy a Tábla módot.' : 'No sector hits were recorded for this match. Fast input saves only the total score; use Pro or Board input to build a hit map.'}</p>}
                   <p className="text-xs text-slate-400 text-center mt-3">{lang === 'hu' ? 'A színek a rögzített találatok számát mutatják, nem a célzási pontosságot.' : 'Colors show recorded hit counts, not aiming accuracy.'}</p>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PlayIcon, ArrowPathIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { MatchConfig } from './SetupScreen';
+import type { Language } from '@/app/page';
 import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -40,7 +41,37 @@ const TRAINING_PLANS: Record<GoalType, TrainingTask[]> = {
     ]
 };
 
-export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartDrill: (config: MatchConfig) => void }) {
+const EN_PLAN_COPY: Record<GoalType, { title: string; desc: string }[]> = {
+    scoring: [
+        { title: 'Around the Clock warm-up', desc: 'Throw at 1 through 20.' },
+        { title: 'Darts Math', desc: 'Practice the subtraction behind scoring.' },
+        { title: 'Target Hunter', desc: 'Focus on T20 and T19.' },
+        { title: 'Rest day', desc: 'Review your progress.' },
+        { title: 'Scoring against AI', desc: 'Play a 501 match against the bot.' },
+        { title: 'Darts Math', desc: 'More mental arithmetic.' },
+        { title: 'Target Hunter: triples', desc: 'Aim only at triples.' },
+    ],
+    checkout: [
+        { title: "Bob's 27", desc: 'Build confidence on doubles.' },
+        { title: '121 Challenge', desc: 'Finish within nine darts.' },
+        { title: "Bob's 27", desc: 'Try to beat your record.' },
+        { title: 'Rest day', desc: 'Review your progress.' },
+        { title: '121 Challenge', desc: 'Practice doubles under pressure.' },
+        { title: 'Target Hunter', desc: 'Practice your favorite doubles.' },
+        { title: "Bob's 27", desc: 'Your final doubles test this week.' },
+    ],
+    first9: [
+        { title: 'Target Hunter', desc: 'Focus on T20.' },
+        { title: 'Quick 501', desc: 'Track your first-nine average.' },
+        { title: 'Around the Clock warm-up', desc: 'Build accuracy across the board.' },
+        { title: 'Rest day', desc: 'Stretch and review.' },
+        { title: 'Darts Math', desc: 'Calculate your first three visits.' },
+        { title: 'Target Hunter', desc: 'Switch between T20 and T19.' },
+        { title: 'Advanced AI match', desc: 'Practice your opening under pressure.' },
+    ],
+};
+
+export function AiCoach({ onBack, onStartDrill, lang }: { onBack: () => void, onStartDrill: (config: MatchConfig) => void, lang: Language }) {
     const [goal, setGoal] = useState<GoalType | null>(null);
     const [completedDays, setCompletedDays] = useState<number[]>([]);
     const [customTasks, setCustomTasks] = useState<TrainingTask[]>([]);
@@ -99,7 +130,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
 
     const addCustomTask = () => {
         if (!newCustomTask.trim()) return;
-        const newTask: TrainingTask = { day: customTasks.length + 8, title: newCustomTask, mode: 'custom', desc: 'Saját felvitt edzés', id: Date.now() };
+        const newTask: TrainingTask = { day: customTasks.length + 8, title: newCustomTask, mode: 'custom', desc: lang === 'hu' ? 'Saját felvitt edzés' : 'Custom training', id: Date.now() };
         saveCoachData(goal, completedDays, [...customTasks, newTask]);
         setNewCustomTask('');
     };
@@ -114,43 +145,43 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
             startingScore: task.mode === 'x01' ? 501 : (task.mode === '121' ? 121 : 0),
             setsToWin: 1, legsToWin: task.mode === 'x01' ? 3 : 1,
             checkIn: 'single', checkout: task.mode === 'x01' ? 'double' : 'single', muteCaller: false,
-            players: [{ name: auth.currentUser?.displayName || 'Játékos', isBot: false, difficulty: 5, color: 'cyan' }]
+            players: [{ name: auth.currentUser?.displayName || (lang === 'hu' ? 'Játékos' : 'Player'), isBot: false, difficulty: 5, color: 'cyan' }]
         };
-        if (task.mode === 'x01') config.players.push({ name: 'AI Edzőpartner', isBot: true, difficulty: 6, color: 'purple' });
+        if (task.mode === 'x01') config.players.push({ name: lang === 'hu' ? 'AI Edzőpartner' : 'AI training partner', isBot: true, difficulty: 6, color: 'purple' });
         
         onStartDrill(config);
     };
 
     if (loading) return <div className="min-h-full w-full bg-[#0b0d11] flex items-center justify-center"><ArrowPathIcon className="h-8 w-8 text-cyan-500 animate-spin" /></div>;
 
-    const currentPlan = goal ? TRAINING_PLANS[goal] : [];
-    const fullPlan = [...currentPlan, ...customTasks];
+    const currentPlan = goal ? TRAINING_PLANS[goal].map((task, index) => lang === 'en' ? { ...task, ...EN_PLAN_COPY[goal][index] } : task) : [];
+    const fullPlan = [...currentPlan, ...customTasks.map(task => ({ ...task, desc: lang === 'hu' ? 'Saját felvitt edzés' : 'Custom training' }))];
     const progressPct = fullPlan.length > 0 ? Math.round((completedDays.length / fullPlan.length) * 100) : 0;
 
     return (
         <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 pt-[calc(1rem+var(--app-safe-top))] pb-16">
             <header className="max-w-6xl mx-auto flex items-center gap-4 mb-7 sm:mb-9">
-                <button onClick={onBack} aria-label="Vissza" className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
+                <button onClick={onBack} aria-label={lang === 'hu' ? 'Vissza' : 'Back'} className="h-11 w-11 shrink-0 rounded-xl border border-slate-700 bg-[#171b23] flex items-center justify-center hover:bg-slate-800"><ArrowLeftIcon className="h-5 w-5" /></button>
                 <div className="min-w-0">
-                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-1"><SparklesIcon className="h-3 w-3" /> DARTISAN / AI EDZŐ</span>
-                    <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white uppercase italic tracking-tight leading-tight">Heti naptár</h1>
+                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-1"><SparklesIcon className="h-3 w-3" /> DARTISAN / {lang === 'hu' ? 'EDZÉSTERVEZŐ' : 'TRAINING PLANNER'}</span>
+                    <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white uppercase italic tracking-tight leading-tight">{lang === 'hu' ? 'Heti naptár' : 'Weekly schedule'}</h1>
                 </div>
             </header>
 
             {!goal ? (
                 <div className="max-w-6xl mx-auto w-full">
                     <div className="rounded-3xl border border-cyan-500/25 bg-gradient-to-br from-cyan-500/15 via-[#151a23] to-[#101216] p-5 sm:p-7 mb-6">
-                        <p className="text-cyan-300 text-xs font-black uppercase tracking-widest mb-2">7 nap · saját tempóban</p>
-                        <p className="text-white text-lg sm:text-xl font-bold max-w-2xl">Válassz egy fókuszt a heti edzéstervedhez.</p>
-                        <p className="text-slate-400 text-xs mt-3">A feladatokat az edzés után jelölheted késznek.</p>
+                        <p className="text-cyan-300 text-xs font-black uppercase tracking-widest mb-2">{lang === 'hu' ? '7 nap · saját tempóban' : '7 days · at your own pace'}</p>
+                        <p className="text-white text-lg sm:text-xl font-bold max-w-2xl">{lang === 'hu' ? 'Válassz egy fókuszt a heti edzéstervedhez.' : 'Choose a focus for your weekly training plan.'}</p>
+                        <p className="text-slate-400 text-xs mt-3">{lang === 'hu' ? 'Előre összeállított terv. A feladatokat az edzés után jelölheted késznek.' : 'A ready-made plan. Mark each task complete after training.'}</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                     {(['scoring', 'checkout', 'first9'] as const).map((g, index) => (
                         <button key={g} onClick={() => saveCoachData(g, [], [])} className="min-h-44 p-5 sm:p-6 rounded-2xl bg-[#12141a] border border-cyan-500/30 text-left hover:border-cyan-400 hover:bg-[#17202a] transition-colors flex flex-col">
                             <span className="text-xs font-black text-cyan-400 tracking-widest">0{index + 1} / 03</span>
-                            <h3 className="text-xl font-black text-white uppercase mt-3">{g === 'scoring' ? 'Tömegdobás' : g === 'checkout' ? 'Kiszállók' : 'Első 9 nyíl'}</h3>
-                            <p className="text-xs text-slate-300 mt-2 leading-relaxed flex-1">{g === 'scoring' ? 'Ponttermelés, célzás és 501 az AI ellen.' : g === 'checkout' ? 'Duplák, 121-es kihívás és nyomáshelyzetek.' : 'Erősebb kezdés és pontosabb első három kör.'}</p>
-                            <span className="text-xs uppercase font-black text-cyan-300 mt-4 flex items-center gap-2"><PlayIcon className="h-4 w-4" /> Terv indítása</span>
+                            <h3 className="text-xl font-black text-white uppercase mt-3">{lang === 'hu' ? (g === 'scoring' ? 'Tömegdobás' : g === 'checkout' ? 'Kiszállók' : 'Első 9 nyíl') : (g === 'scoring' ? 'Scoring' : g === 'checkout' ? 'Checkouts' : 'First nine darts')}</h3>
+                            <p className="text-xs text-slate-300 mt-2 leading-relaxed flex-1">{lang === 'hu' ? (g === 'scoring' ? 'Ponttermelés, célzás és 501 az AI ellen.' : g === 'checkout' ? 'Duplák, 121-es kihívás és nyomáshelyzetek.' : 'Erősebb kezdés és pontosabb első három kör.') : (g === 'scoring' ? 'Scoring, aiming and a 501 match against the bot.' : g === 'checkout' ? 'Doubles, the 121 challenge and pressure drills.' : 'A stronger start and more accurate first three visits.')}</p>
+                            <span className="text-xs uppercase font-black text-cyan-300 mt-4 flex items-center gap-2"><PlayIcon className="h-4 w-4" /> {lang === 'hu' ? 'Terv indítása' : 'Start plan'}</span>
                         </button>
                     ))}
                     </div>
@@ -160,7 +191,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                     {/* Progress Bar (3. Pont) */}
                     <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl shadow-lg">
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs uppercase font-black text-slate-400 tracking-widest">{completedDays.length} / {fullPlan.length} nap kész</span>
+                            <span className="text-xs uppercase font-black text-slate-400 tracking-widest">{completedDays.length} / {fullPlan.length} {lang === 'hu' ? 'nap kész' : 'days done'}</span>
                             <span className="text-xl font-black text-cyan-400">{progressPct}%</span>
                         </div>
                         <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
@@ -175,7 +206,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                             const isDone = completedDays.includes(idx);
                             return (
                                 <div key={idx} className={`relative z-10 flex gap-4 p-4 rounded-2xl border transition-all ${isDone ? 'bg-emerald-500/10 border-emerald-500/30 opacity-70' : 'bg-[#12141a] border-slate-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]'}`}>
-                                    <button onClick={() => toggleDay(idx)} aria-label={`${task.title}: ${isDone ? 'kész jelölés visszavonása' : 'késznek jelölés'}`} className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500 text-slate-900' : 'bg-slate-900 border-slate-600 text-slate-600 hover:border-cyan-500'}`}>
+                                    <button onClick={() => toggleDay(idx)} aria-label={`${task.title}: ${lang === 'hu' ? (isDone ? 'kész jelölés visszavonása' : 'késznek jelölés') : (isDone ? 'mark incomplete' : 'mark complete')}`} className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors ${isDone ? 'bg-emerald-500 border-emerald-500 text-slate-900' : 'bg-slate-900 border-slate-600 text-slate-600 hover:border-cyan-500'}`}>
                                         {isDone ? <CheckCircleIcon className="h-5 w-5" /> : null}
                                     </button>
                                     <div className="flex-1">
@@ -184,7 +215,7 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
                                         
                                         {!isDone && task.mode !== 'rest' && task.mode !== 'custom' && (
                                             <button onClick={() => handleStartTask(task)} className="mt-3 w-full h-10 bg-cyan-500 text-slate-900 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95">
-                                                <PlayIcon className="h-4 w-4" /> Indítás
+                                                <PlayIcon className="h-4 w-4" /> {lang === 'hu' ? 'Indítás' : 'Start'}
                                             </button>
                                         )}
                                     </div>
@@ -195,14 +226,14 @@ export function AiCoach({ onBack, onStartDrill }: { onBack: () => void, onStartD
 
                     {/* Saját Edzés Felvitele (3. Pont) */}
                     <div className="mt-6 bg-[#12141a] border border-dashed border-slate-700 p-4 rounded-2xl flex flex-col gap-3">
-                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest block">Saját Edzés Felvitele</span>
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest block">{lang === 'hu' ? 'Saját edzés felvitele' : 'Add your own training'}</span>
                         <div className="flex gap-2">
-                            <input type="text" placeholder="Pl: 10 perc dupla gyakorlás" value={newCustomTask} onChange={(e) => setNewCustomTask(e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-cyan-500" />
-                            <button onClick={addCustomTask} className="bg-slate-800 text-white p-3 rounded-xl hover:bg-slate-700"><PlusIcon className="h-5 w-5"/></button>
+                            <input type="text" aria-label={lang === 'hu' ? 'Új saját edzés neve' : 'New custom training name'} placeholder={lang === 'hu' ? 'Pl: 10 perc dupla gyakorlás' : 'E.g. 10 minutes on doubles'} value={newCustomTask} onChange={(e) => setNewCustomTask(e.target.value)} className="min-w-0 flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-cyan-500" />
+                            <button onClick={addCustomTask} aria-label={lang === 'hu' ? 'Saját edzés hozzáadása' : 'Add custom training'} className="bg-slate-800 text-white p-3 rounded-xl hover:bg-slate-700"><PlusIcon className="h-5 w-5"/></button>
                         </div>
                     </div>
 
-                    <button onClick={() => saveCoachData(null, [], [])} className="mt-8 w-full h-12 bg-slate-900 text-slate-500 border border-slate-800 rounded-xl font-black uppercase text-xs hover:text-white">Terv Visszaállítása</button>
+                    <button onClick={() => saveCoachData(null, [], [])} className="mt-8 w-full h-12 bg-slate-900 text-slate-500 border border-slate-800 rounded-xl font-black uppercase text-xs hover:text-white">{lang === 'hu' ? 'Terv visszaállítása' : 'Reset plan'}</button>
                 </div>
             )}
         </div>

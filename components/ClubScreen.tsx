@@ -11,6 +11,7 @@ import {
     updateDoc, arrayUnion, arrayRemove, writeBatch, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 
 interface ClubScreenProps {
     onBack: () => void;
@@ -103,6 +104,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
     const [isCreating, setIsCreating] = useState(false);
     const [joiningClubId, setJoiningClubId] = useState<string | null>(null);
     const [isLeaving, setIsLeaving] = useState(false);
+    const [feedback, setFeedback] = useState<AppFeedbackState | null>(null);
 
     // ─── Load user's club (realtime) ─────────────────────────────────────────
     useEffect(() => {
@@ -199,14 +201,19 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
             setNewClubName('');
         } catch (e) {
             console.error('Club létrehozási hiba:', e);
+            setFeedback({ kind: 'notice', message: lang === 'hu' ? 'A klub létrehozása nem sikerült. Próbáld újra.' : 'Could not create the club. Please try again.' });
         }
         setIsCreating(false);
     };
 
     const handleJoinClub = async (clubId: string, clubName: string, memberCount: number, maxMembers: number) => {
         if (!currentUser || joiningClubId || myClub) return;
-        if (memberCount >= maxMembers) { alert('Ez a klub már teli van!'); return; }
-        if (!window.confirm(t.joinConfirm(clubName))) return;
+        if (memberCount >= maxMembers) { setFeedback({ kind: 'notice', message: lang === 'hu' ? 'Ez a klub már tele van.' : 'This club is full.' }); return; }
+        setFeedback({ kind: 'confirm', message: t.joinConfirm(clubName), onConfirm: () => joinClub(clubId) });
+    };
+
+    const joinClub = async (clubId: string) => {
+        if (!currentUser || joiningClubId || myClub) return;
         setJoiningClubId(clubId);
         try {
             const batch = writeBatch(db);
@@ -216,13 +223,18 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
             await batch.commit();
         } catch (e) {
             console.error('Csatlakozási hiba:', e);
+            setFeedback({ kind: 'notice', message: lang === 'hu' ? 'Nem sikerült csatlakozni a klubhoz. Próbáld újra.' : 'Could not join the club. Please try again.' });
         }
         setJoiningClubId(null);
     };
 
-    const handleLeaveClub = async () => {
+    const handleLeaveClub = () => {
         if (!currentUser || !myClub || isLeaving) return;
-        if (!window.confirm(t.leaveConfirm)) return;
+        setFeedback({ kind: 'confirm', message: t.leaveConfirm, onConfirm: leaveClub, confirmLabel: t.leave });
+    };
+
+    const leaveClub = async () => {
+        if (!currentUser || !myClub || isLeaving) return;
         setIsLeaving(true);
         try {
             const batch = writeBatch(db);
@@ -240,6 +252,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
             await batch.commit();
         } catch (e) {
             console.error('Kilépési hiba:', e);
+            setFeedback({ kind: 'notice', message: lang === 'hu' ? 'Nem sikerült kilépni a klubból. Próbáld újra.' : 'Could not leave the club. Please try again.' });
         }
         setIsLeaving(false);
     };
@@ -274,6 +287,7 @@ export function ClubScreen({ onBack, currentUser, lang }: ClubScreenProps) {
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
         <div className="fixed inset-0 z-[100] bg-[#0b0d11] text-slate-200 flex flex-col overflow-y-auto px-4 pb-24 pt-[calc(1rem+var(--app-safe-top))]">
+            <AppFeedback feedback={feedback} lang={lang} onClose={() => setFeedback(null)} />
 
             {/* Háttér díszítés */}
             <div className="absolute inset-0 z-0 opacity-[0.03] scale-150 pointer-events-none flex items-center justify-center">
