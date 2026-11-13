@@ -805,10 +805,15 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
 
       <div className="w-full max-w-6xl mx-auto grid grid-cols-1 gap-6 lg:gap-8 items-start">
       <section className="w-full flex flex-col items-center lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
-      <header className="mb-6 text-center lg:text-left shrink-0 lg:col-span-2">
-        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-1 block">DARTISAN</span>
-        <h1 className="text-4xl lg:text-6xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
-        <p className="hidden sm:block text-sm text-slate-400 font-medium mt-3 max-w-2xl">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
+      <header className="mb-6 text-center lg:text-left shrink-0 lg:col-span-2 lg:flex lg:items-center lg:justify-between lg:gap-6">
+        <div>
+          <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-1 block">DARTISAN</span>
+          <h1 className="text-4xl lg:text-6xl font-black text-white uppercase italic tracking-tighter">{tab === 'x01' || tab === 'challenge' ? txt.setup : tab === 'practice' ? txt.practice : tab === 'career' ? txt.career : tab === 'cricket' ? 'Cricket' : txt.leagues}</h1>
+          <p className="hidden sm:block text-sm text-slate-400 font-medium mt-3 max-w-2xl">{lang === 'hu' ? 'Válassz játékmódot, állítsd be a játékosokat, és indulhat a meccs.' : 'Choose a mode, set up the players, and start your match.'}</p>
+        </div>
+        {tab === 'x01' && <button type="button" onClick={() => onStart({ gameMode: 'x01', players, startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout, muteCaller })} className="hidden lg:inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 px-6 text-slate-950 text-sm font-black uppercase tracking-wide hover:bg-emerald-400 active:scale-95">
+          {lang === 'hu' ? 'Meccs indítása' : 'Start match'}
+        </button>}
       </header>
 
       <button type="button" onClick={onOpenTrainingLab} className="w-full min-h-20 mb-6 rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/20 via-[#182330] to-[#12141a] px-5 py-4 text-left flex items-center justify-between gap-4 hover:border-cyan-400 hover:bg-cyan-500/20 transition-all lg:col-span-2 lg:row-start-2">
@@ -868,18 +873,6 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
       </section>
 
       <div className={`w-full min-w-0 bg-[#12141a] rounded-[2rem] p-5 sm:p-6 lg:p-8 border border-slate-800 shadow-2xl flex flex-col mb-8 ${tab === 'x01' || tab === 'challenge' ? '' : 'lg:max-w-4xl lg:mx-auto'}`}>
-        {tab === 'x01' && (
-          <div className="hidden lg:flex items-center justify-between gap-5 border-b border-slate-800 pb-5 mb-6">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">{lang === 'hu' ? 'Saját mérkőzés' : 'Custom match'}</p>
-              <p className="text-sm text-slate-400 mt-1">{lang === 'hu' ? 'Állítsd be a szabályokat, majd indítsd a meccset.' : 'Set the rules, then start the match.'}</p>
-            </div>
-            <button type="button" onClick={() => onStart({ gameMode: 'x01', players, startingScore: score, setsToWin: sets, legsToWin: legs, checkIn, checkout, muteCaller })} className="h-12 shrink-0 rounded-xl bg-emerald-500 px-6 text-slate-950 text-sm font-black uppercase tracking-wide hover:bg-emerald-400 active:scale-95">
-              {lang === 'hu' ? 'Meccs indítása' : 'Start match'}
-            </button>
-          </div>
-        )}
-        
         {(tab === 'x01' || tab === 'challenge') && (
           <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-x-10">
             <div>
