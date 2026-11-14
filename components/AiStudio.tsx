@@ -12,6 +12,8 @@ import { readMatchVisits } from '../lib/matchReplay';
 import { AiCoach } from './AiCoach';
 import { MatchTimeMachine, type ReplayMatch } from './MatchTimeMachine';
 import { AiPracticeLab } from './AiPracticeLab';
+import { AiInsights } from './AiInsights';
+import type { ScoutMatch } from '../lib/matchIntelligence';
 import type { MatchConfig } from './SetupScreen';
 import type { Language } from '@/app/page';
 
@@ -99,6 +101,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
   const [tab, setTab] = useState<StudioTab>('dna');
   const [matches, setMatches] = useState<DatedDnaMatch[]>([]);
   const [replay, setReplay] = useState<ReplayMatch | null>(null);
+  const [scoutMatches, setScoutMatches] = useState<ScoutMatch[]>([]);
   const [aims, setAims] = useState<DnaAim[]>([]);
   const [loadedUid, setLoadedUid] = useState<string | null>(null);
   const [failedUid, setFailedUid] = useState<string | null>(null);
@@ -136,6 +139,13 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
         } satisfies ReplayMatch;
       }).find(Boolean);
       setReplay(replayItem || null);
+      setScoutMatches(history.docs.flatMap(item => {
+        const data = item.data();
+        if (data.mode !== 'x01' || !Array.isArray(data.players) || data.players.length !== 2 ||
+            typeof data.players[1] !== 'string') return [];
+        return [{ opponent: data.players[1], won: data.won === true,
+          visits: readMatchVisits(data.visits) }];
+      }));
       setMatches(history.docs.map(item => {
         const data = item.data();
         const stats = data.stats || {};
@@ -289,6 +299,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
 
       <MatchTimeMachine lang={lang} replay={ready ? replay : null} onStartGhost={startGhost} loading={loading} signedOut={!signedUser} />
       <AiPracticeLab dna={dna} matches={ready ? matches : []} lang={lang} currentUser={signedUser} onStartDrill={onStartDrill} />
+      <AiInsights lang={lang} matches={ready ? matches : []} scoutMatches={ready ? scoutMatches : []} loading={loading} signedOut={!signedUser} loadError={loadError} />
 
       <section className="rounded-3xl border border-[#b655ff]/25 bg-[#12141a] p-5 sm:p-7">
         <div className="flex items-center gap-2"><SparklesIcon className="h-5 w-5 text-[#b655ff]" /><h2 className="text-xl sm:text-2xl font-black text-white uppercase italic">{t.aiTitle}</h2></div>

@@ -30,12 +30,12 @@ Frissítve: 2026. november 14. Az összegek **becslések egy használatra**, USD
 
 ## 2. hullám – különleges edző és meccsélmény
 
-| # | Funkció | Élmény és érték | Becsült API-költség |
-| --- | --- | --- | --- |
-| 11 | „Mi lett volna, ha?” | Másik kiszállóút vagy célpont hatásának szimulálása | 0 $; magyarázat 0,0002–0,0005 $ |
-| 12 | Edzői csere a legszünetben | Egy rövid, adatból indokolt taktikai javaslat | 0,0002–0,0005 $ / kérés |
-| 13 | Ellenfél-felderítő | Korábbi meccsekből gyűjtött erősségek és minták | 0 $; prózai elemzés 0,0006–0,0010 $ |
-| 14 | Győzelmi recept | Az eddigi legjobb meccsek közös mintáit keresi | 0 $; magyarázat 0,0002–0,0005 $ |
+| # | Funkció | Élmény és érték | Becsült API-költség | Állapot |
+| --- | --- | --- | --- | --- |
+| 11 | „Mi lett volna, ha?” | Mentett X01 körből szabályos, elméleti alternatív kiszálló vagy előkészítés | 0 $; élő magyarázat később 0,0002–0,0005 $ | Helyi változat kész, új körnaplós meccs kell |
+| 12 | Edzői csere a legszünetben | A lezárt leg pontjaiból és sokjaiból rövid javaslat | 0 $ helyben; élő AI később 0,0002–0,0005 $ / kérés | Helyi változat kész X01 meccsben |
+| 13 | Ellenfél-felderítő | Ismétlődő ellenfél meccsrekordja és naplózott köreinek mintája | 0 $; prózai elemzés később 0,0006–0,0010 $ | Helyi változat kész; új körnaplós meccsek gazdagítják |
+| 14 | Győzelmi recept | Mentett X01 győzelmek és vereségek mutatóinak összehasonlítása | 0 $; élő magyarázat később 0,0002–0,0005 $ | Helyi változat kész; mindkét eredményből kell minta |
 | 15 | Személyre szabott négyhetes terv | Mérhető feladat, terhelés és újratervezés | 0 $ algoritmussal vagy 0,0006–0,0010 $ / új terv |
 | 16 | Edzés közbeni adaptáció | A következő célpont az előző körök alapján változik | 0 $ |
 | 17 | Mentális nyomásszimulátor | Kevés nyíl, időkeret, virtuális ellenfél és visszajelzés | 0 $ |

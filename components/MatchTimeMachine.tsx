@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon } from '@heroicons/react/24/outline';
 import type { Language } from '@/app/page';
 import { replayFrame, turningPoints, type MatchVisit } from '../lib/matchReplay';
+import { whatIfRoute } from '../lib/matchIntelligence';
+import { dartName } from '../lib/checkoutRoutes';
 
 export type ReplayMatch = {
   id: string;
@@ -27,6 +29,7 @@ export function MatchTimeMachine({ lang, replay, onStartGhost, loading, signedOu
   const visits = replay?.visits || [];
   const frame = replayFrame(visits, active, replay?.startingScore || 501);
   const highlights = turningPoints(visits);
+  const alternative = replay ? whatIfRoute(visits, active, replay.checkout) : null;
   const jump = (index: number) => { setSelectedId(replay?.id || null); setPosition(Math.max(0, Math.min(visits.length, index))); };
   const hu = lang === 'hu';
   const ghostReady = !!replay && replay.checkIn === 'single' && replay.visits.some(visit => visit.playerId === 0) && replay.playerNames.length === 2;
@@ -55,6 +58,13 @@ export function MatchTimeMachine({ lang, replay, onStartGhost, loading, signedOu
         </div>
       </div>
       {highlights.length > 0 && <div className="mt-5"><h3 className="text-xs font-black uppercase tracking-wide text-slate-300 mb-2">{hu ? 'Fordulópontok' : 'Turning points'}</h3><div className="grid sm:grid-cols-3 gap-2">{highlights.map(item => <button type="button" key={`${item.kind}-${item.visit.order}`} onClick={() => jump(visits.findIndex(visit => visit.order === item.visit.order) + 1)} className="min-h-20 rounded-xl border border-slate-700 bg-[#0c1017] p-3 text-left hover:border-cyan-400 focus-visible:outline-2 focus-visible:outline-cyan-400"><span className="block text-[10px] font-black uppercase text-cyan-300">{item.kind === 'checkout' ? (hu ? 'Legjobb kiszálló' : 'Best checkout') : item.kind === 'high' ? (hu ? 'Legnagyobb kör' : 'Highest visit') : (hu ? 'Drága sok' : 'Costly bust')}</span><strong className="block mt-1 text-lg text-white tabular-nums">{item.kind === 'bust' ? `${item.visit.scoreBefore} → ${item.visit.scoreBefore}` : `${item.visit.scoreBefore} → ${item.visit.scoreBefore - item.visit.points}`}</strong></button>)}</div></div>}
+      {alternative && <div className="mt-5 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4 sm:p-5" aria-label={hu ? 'Mi lett volna, ha' : 'What if'}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-black uppercase italic text-white">{hu ? 'Mi lett volna, ha?' : 'What if?'}</h3><span className="text-[10px] font-bold uppercase text-cyan-300">{hu ? `${alternative.visit.leg}. leg · ${alternative.visit.order}. kör` : `Leg ${alternative.visit.leg} · visit ${alternative.visit.order}`}</span></div>
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">{hu ? 'Egy másik, szabályos út ugyanabból a helyzetből és legfeljebb ugyanannyi nyílból:' : 'Another legal route from the same position with no more darts:'}</p>
+        <strong className="mt-3 block break-words text-lg font-black text-cyan-200 sm:text-xl">{alternative.route.darts.map(dartName).join(' → ')}</strong>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><span className="block text-slate-400">{hu ? 'Tényleges maradék' : 'Actual remaining'}</span><strong className="mt-1 block text-xl font-black tabular-nums text-white">{alternative.actualRemaining}</strong></div><div className="rounded-xl border border-cyan-500/30 bg-slate-950/50 p-3"><span className="block text-slate-400">{hu ? 'Ha mind célba ér' : 'If every target hits'}</span><strong className="mt-1 block text-xl font-black tabular-nums text-cyan-300">{alternative.route.remaining}</strong></div></div>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">{hu ? 'Elméleti összehasonlítás, nem újrajátszott eredmény. A siker esélye a célzási pontosságodtól függ.' : 'A theoretical comparison, not a replayed result. Success depends on your accuracy.'}</p>
+      </div>}
       {!ghostReady && <p className="mt-3 text-xs text-slate-500">{hu ? 'A fantommeccs egy korábbi, single-in X01 meccs után érhető el.' : 'Ghost play requires an earlier single-in X01 match.'}</p>}
     </>}
   </section>;

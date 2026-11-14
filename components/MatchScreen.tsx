@@ -24,6 +24,7 @@ import { drillHit, drillResult, parseDrillTarget } from '../lib/targetDrill';
 import type { MatchConfig } from './SetupScreen';
 import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 import { orderedVisits, recordVisit, type MatchVisit } from '../lib/matchReplay';
+import { legBreakAdvice } from '../lib/matchIntelligence';
 
 export type Dart = { val: number; mult: number; heatmapEvent?: HeatmapEvent };
 const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
@@ -1603,6 +1604,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const legWinnerPlayer = isAsync
       ? (fbSyncData?.state?.resolvedLeg?.winner === role ? players[0] : players[1])
       : safePlayer;
+  const legAdvice = !isAsync && config.gameMode === 'x01' && (isLegWinner || isSetWinner)
+      ? legBreakAdvice(orderedVisits(players), legNumber) : null;
   const checkoutDartsValid = pendingCheckout === null || canCheckoutInDarts(pendingCheckout, checkoutDarts, config.checkout);
   const activeColorTheme = COLOR_STYLES[safePlayer?.color] || COLOR_STYLES['emerald']; 
   const colTxt = activeColorTheme.split(' ')[0] || 'text-emerald-400'; 
@@ -1858,8 +1861,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       )}
 
       {(isLegWinner || isSetWinner) && !isMatchWinner && asyncState === 'playing' && (
-        <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={isSetWinner ? (lang === 'hu' ? 'Szett vége' : 'Set complete') : (lang === 'hu' ? 'Leg vége' : 'Leg complete')}>
-          <div className="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-[#121821] p-6 sm:p-8 text-center shadow-2xl">
+        <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex items-center justify-center overflow-y-auto p-4 pt-[calc(1rem+var(--app-safe-top))] pb-[calc(1rem+var(--app-safe-bottom))]" role="dialog" aria-modal="true" aria-label={isSetWinner ? (lang === 'hu' ? 'Szett vége' : 'Set complete') : (lang === 'hu' ? 'Leg vége' : 'Leg complete')}>
+          <div className="my-auto w-full max-w-md rounded-3xl border border-emerald-500/40 bg-[#121821] p-6 sm:p-8 text-center shadow-2xl">
             <TrophyIcon className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
             <h2 className="text-3xl font-black text-white mb-2">{isSetWinner ? (lang === 'hu' ? 'Szett vége!' : 'Set complete!') : txt.waitLegTitle}</h2>
             <p className="text-emerald-300 font-bold mb-6">{legWinnerPlayer?.name} {lang === 'hu' ? 'nyerte ezt a leget.' : 'won this leg.'}</p>
@@ -1871,6 +1874,17 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 </div>
               ))}
             </div>
+            {legAdvice && <div className="mb-5 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4 text-left">
+              <span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">{lang === 'hu' ? 'Edzői szünet · helyi elemzés' : 'Leg-break coach · local analysis'}</span>
+              <p className="mt-2 text-sm font-bold leading-relaxed text-white">{legAdvice.kind === 'busts'
+                ? (lang === 'hu' ? `${legAdvice.busts} sok volt 100 pont alatt. A következő legben az utolsó két nyilat a biztos duplára készítsd elő.` : `${legAdvice.busts} busts below 100. In the next leg, use your last two darts to set up a comfortable double.`)
+                : legAdvice.kind === 'scoring'
+                  ? (lang === 'hu' ? `A háromnyilas átlagod ${legAdvice.ownAverage}, az ellenfélé ${legAdvice.opponentAverage}. A következő leg első három körében a stabil ponttermelésre figyelj.` : `Your three-dart average is ${legAdvice.ownAverage}, your opponent's is ${legAdvice.opponentAverage}. Focus on steady scoring in your first three visits.`)
+                  : legAdvice.kind === 'protect'
+                    ? (lang === 'hu' ? `A háromnyilas átlagod ${legAdvice.ownAverage}, az ellenfélé ${legAdvice.opponentAverage}. Tartsd ezt a tempót; 170 alatt válassz előre kiszállóutat.` : `Your three-dart average is ${legAdvice.ownAverage}, your opponent's is ${legAdvice.opponentAverage}. Keep that pace; plan your checkout below 170.`)
+                    : (lang === 'hu' ? `Ebben a legben ${legAdvice.ownAverage} volt a háromnyilas átlagod. A következő legben ugyanilyen ritmussal kezdd az első három kört.` : `Your three-dart average was ${legAdvice.ownAverage} this leg. Start the next leg with the same rhythm.`)}</p>
+              <p className="mt-2 text-[11px] text-slate-400">{lang === 'hu' ? 'A lezárt leg dobásaiból készült. Nem változtatja meg az eredményt.' : 'Based on the completed leg. It does not change the result.'}</p>
+            </div>}
             <button type="button" onClick={handleNextLegOrSet} className="w-full h-14 rounded-xl bg-emerald-400 text-slate-950 font-black uppercase">
               {lang === 'hu' ? 'Következő leg' : 'Next leg'}
             </button>
