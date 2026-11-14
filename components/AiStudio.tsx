@@ -6,6 +6,7 @@ import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
 import { buildDartsDna, type DnaAim, type DnaMatch } from '../lib/dartsDna';
+import { createLocalNarrative } from '../lib/localCoach';
 import { AiCoach } from './AiCoach';
 import type { MatchConfig } from './SetupScreen';
 import type { Language } from '@/app/page';
@@ -33,12 +34,14 @@ const words = {
     mission2Desc: 'Indulj 121-ről, és zárj duplával.',
     mission3Desc: '501 egy bot ellen. A cél: döntés nyomás alatt.',
     aiTitle: 'AI műsorvezető és edző', aiIntro: 'Egy gombnyomás = egy rövid API-kérés. Nincs automatikus hívás dobásonként.',
+    localIntro: 'Próbáld ki a három stílust a mentett meccseid számaival. Ez a változat a készüléken állítja össze a szöveget.',
     free: 'OpenAI-költség: 0 $', aiEstimate: 'Becsült OpenAI-költség: 0,0002–0,0006 $ / új elemzés. A felolvasás a készülék hangját használja.',
     tactics: 'Taktikai dosszié', broadcast: 'Meccsfilm', rival: 'Rivális hang',
     tacticsDesc: 'Három konkrét erősség, gyenge pont és következő lépés.',
     broadcastDesc: 'Sportközvetítés a legutóbbi meccseid számaiból.',
     rivalDesc: 'Játékos, csipkelődő kihívás a következő meccshez.',
-    analyze: 'Elemzés kérése', unavailable: 'Az AI-szolgáltatás még nincs bekötve; az ingyenes elemzés és kihívások működnek.',
+    analyze: 'Elemzés kérése', localAnalyze: 'Helyi összefoglaló', unavailable: 'Az élő AI még nincs bekötve. A helyi összefoglaló ingyenesen működik a mentett meccseiddel.',
+    localEstimate: 'Helyi összefoglaló: 0 $ OpenAI-költség. Az élő AI később külön kapcsolható be.',
     signIn: 'Az AI-kérésekhez jelentkezz be.',
     failed: 'Az AI-válasz most nem érhető el. Próbáld újra később.',
     loading: 'Elemzés készül…', speak: 'Felolvasás', stop: 'Leállítás',
@@ -63,12 +66,14 @@ const words = {
     mission2Desc: 'Start at 121 and finish on a double.',
     mission3Desc: '501 against a bot. Make decisions under pressure.',
     aiTitle: 'AI broadcaster and coach', aiIntro: 'One button press makes one short API request. No automatic call after every dart.',
+    localIntro: 'Try three styles based on your recorded matches. This version builds the text on your device.',
     free: 'OpenAI cost: $0', aiEstimate: 'Estimated OpenAI cost: $0.0002–$0.0006 per new analysis. Read aloud uses your device voice.',
     tactics: 'Tactical dossier', broadcast: 'Match movie', rival: 'Rival voice',
     tacticsDesc: 'Three evidence-based strengths, gaps and next steps.',
     broadcastDesc: 'A sports recap from your most recent match numbers.',
     rivalDesc: 'A playful challenge for your next match.',
-    analyze: 'Generate', unavailable: 'The AI service is not connected yet; free analysis and challenges work now.',
+    analyze: 'Generate', localAnalyze: 'Local recap', unavailable: 'Live AI is not connected yet. The local recap works for free with your recorded matches.',
+    localEstimate: 'Local recap: $0 OpenAI cost. Live AI can be enabled separately later.',
     signIn: 'Sign in before requesting an AI response.',
     failed: 'The AI response is unavailable. Please try again later.',
     loading: 'Analyzing…', speak: 'Read aloud', stop: 'Stop',
@@ -152,7 +157,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
   };
 
   const runAi = async () => {
-    if (!apiUrl) { setAiError(t.unavailable); return; }
+    if (!apiUrl) { setAiError(''); setAiText(createLocalNarrative(mode, lang, dna)); return; }
     const user = signedUser;
     if (!user) { setAiError(t.signIn); return; }
     setAiBusy(true); setAiError(''); setAiText('');
@@ -251,12 +256,12 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
 
       <section className="rounded-3xl border border-[#b655ff]/25 bg-[#12141a] p-5 sm:p-7">
         <div className="flex items-center gap-2"><SparklesIcon className="h-5 w-5 text-[#b655ff]" /><h2 className="text-xl sm:text-2xl font-black text-white uppercase italic">{t.aiTitle}</h2></div>
-        <p className="text-xs text-slate-400 mt-2 mb-5">{t.aiIntro}</p>
+        <p className="text-xs text-slate-400 mt-2 mb-5">{apiUrl ? t.aiIntro : t.localIntro}</p>
         <div className="grid sm:grid-cols-3 gap-2">
           {aiModes.map(item => <button key={item.id} onClick={() => { window.speechSynthesis?.cancel(); setSpeaking(false); setMode(item.id); setAiText(''); setAiError(''); }} aria-pressed={mode === item.id} className={`rounded-2xl border p-4 text-left min-h-28 ${mode === item.id ? 'border-[#b655ff] bg-[#b655ff]/10' : 'border-slate-700 bg-[#0c1017]'}`}><item.icon className="h-5 w-5 text-[#b655ff] mb-3" /><strong className="block text-sm text-white">{item.title}</strong><span className="block text-xs text-slate-400 mt-1">{item.desc}</span></button>)}
         </div>
-        <button onClick={runAi} disabled={aiBusy || !apiUrl} className="mt-5 min-h-12 px-6 rounded-xl bg-[#b655ff] text-slate-950 text-xs font-black uppercase disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2">{aiBusy ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <SparklesIcon className="h-4 w-4" />}{aiBusy ? t.loading : t.analyze}</button>
-        <p className="text-[11px] text-slate-400 mt-3">{t.aiEstimate}</p>
+        <button onClick={runAi} disabled={aiBusy || loading} className="mt-5 min-h-12 px-6 rounded-xl bg-[#b655ff] text-slate-950 text-xs font-black uppercase disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2">{aiBusy ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <SparklesIcon className="h-4 w-4" />}{aiBusy ? t.loading : apiUrl ? t.analyze : t.localAnalyze}</button>
+        <p className="text-[11px] text-slate-400 mt-3">{apiUrl ? t.aiEstimate : t.localEstimate}</p>
         {!apiUrl && <p className="text-xs text-slate-400 mt-3">{t.unavailable}</p>}
         {aiError && <p role="alert" className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-sm text-rose-200">{aiError}</p>}
         {aiText && <div className="mt-5 rounded-2xl bg-[#0c1017] border border-slate-700 p-4 sm:p-5"><p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{aiText}</p><button onClick={readAloud} className="mt-4 inline-flex items-center gap-2 text-xs uppercase font-black text-cyan-300"><SpeakerWaveIcon className="h-4 w-4" /> {speaking ? t.stop : t.speak}</button></div>}

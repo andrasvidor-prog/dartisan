@@ -19,9 +19,9 @@ Frissítve: 2026. november 14. Az összegek **becslések egy használatra**, USD
 | --- | --- | --- | --- | --- |
 | 1 | Darts DNS | Játékprofil a mentett átlagból, első 9 nyílból, kiszállóból és célzott találatokból | 0 $ | Helyben kész |
 | 2 | Nyomáslabor | Egy gombbal dupla-, 121-es és Boss-kihívás | 0 $ | Helyben kész |
-| 3 | Taktikai dosszié | Konkrét erősségek, gyenge pontok és következő edzés | 0,0002–0,0006 $ | UI és szerver készen, kulcs nélkül inaktív |
-| 4 | Meccsfilm | A valós statisztikákat élő közvetítés stílusában meséli el | 0,0002–0,0006 $ | UI és szerver készen, kulcs nélkül inaktív |
-| 5 | Rivális hang | Személyre szabott, játékos meccselőzetes | 0,0002–0,0006 $ | UI és szerver készen, kulcs nélkül inaktív |
+| 3 | Taktikai dosszié | Konkrét erősségek, gyenge pontok és következő edzés | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
+| 4 | Meccsfilm | A valós statisztikákat sportközvetítés stílusában meséli el | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
+| 5 | Rivális hang | Személyre szabott, játékos meccselőzetes | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
 | 6 | Fantomellenfél | A saját korábbi köreid ritmusa ellen játszol | 0 $ | Következő; körönkénti előzmény kell |
 | 7 | Fordulópont-visszajátszás | A meccs legfontosabb három döntését emeli ki | 0 $ vagy 0,0002–0,0005 $ szöveggel | Következő; eseménynapló kell |
 | 8 | Kiszálló-útvonal térkép | Több lehetséges út és a választás kockázata | 0 $ | Következő |
