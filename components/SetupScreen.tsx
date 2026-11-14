@@ -877,7 +877,7 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
             <button onClick={() => setTab('leagues')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${tab === 'leagues' ? 'bg-[#ff2b5e] text-white border-[#ff2b5e] shadow-[0_0_15px_rgba(255,43,94,0.3)]' : 'bg-[#12141a] text-slate-500 border-slate-800 hover:bg-slate-800'}`}>{txt.leagues}</button>
             {onOpenCoach && (
                 <button onClick={onOpenCoach} className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all border bg-[#12141a] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 shadow-[0_0_10px_rgba(6,182,212,0.15)] flex items-center justify-center">
-                    {lang === 'hu' ? 'Edzéstervező' : 'Training planner'}
+                    {lang === 'hu' ? 'AI Stúdió' : 'AI Studio'}
                 </button>
             )}
           </div>

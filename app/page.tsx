@@ -8,7 +8,7 @@ import type { TournamentConfig } from '../components/TournamentScreen';
 import type { User } from 'firebase/auth';
 import ProfileScreen from '../components/ProfileScreen';
 import { TournamentBracket } from '../components/TournamentBracket';
-import { AiCoach } from '../components/AiCoach';
+import { AiStudio } from '../components/AiStudio';
 import { TournamentScreen } from '../components/TournamentScreen';
 import { SettingsScreen } from '../components/SettingsScreen';
 import { ClubScreen } from '../components/ClubScreen';
@@ -269,8 +269,9 @@ export default function Home() {
       )}
 
       {currentScreen === 'coach' && (
-        <AiCoach
+        <AiStudio
           lang={lang}
+          currentUser={currentUser}
           onBack={() => setCurrentScreen('setup')}
           onStartDrill={(drillConfig) => {
               setMatchConfig(drillConfig);

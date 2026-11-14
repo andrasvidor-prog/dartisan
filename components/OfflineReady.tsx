@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 const subscribeConnection = (notify: () => void) => {
   window.addEventListener('online', notify);
@@ -15,7 +16,7 @@ export function OfflineReady() {
   const offline = useSyncExternalStore(subscribeConnection, () => !navigator.onLine, () => false);
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
+    if (process.env.NODE_ENV === 'production' && !Capacitor.isNativePlatform() && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(error => console.error('Offline setup failed', error));
     }
   }, []);

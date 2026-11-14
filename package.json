@@ -6,8 +6,11 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "ios:assets": "node scripts/generate-ios-assets.mjs",
+    "ios:sync": "cap sync ios",
+    "ios:open": "cap open ios",
     "lint": "eslint",
-    "test:unit": "node --experimental-strip-types --test tests/x01.test.mjs tests/backup.test.mjs tests/quests.test.mjs tests/career.test.mjs tests/training.test.mjs tests/trainingPlan.test.mjs tests/matchPresets.test.mjs tests/cricket.test.mjs tests/matchAnalytics.test.mjs tests/heatmap.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/x01.test.mjs tests/backup.test.mjs tests/quests.test.mjs tests/career.test.mjs tests/training.test.mjs tests/trainingPlan.test.mjs tests/matchPresets.test.mjs tests/cricket.test.mjs tests/matchAnalytics.test.mjs tests/heatmap.test.mjs tests/dartsDna.test.mjs tests/aiFunction.test.mjs",
     "test:online:live": "node tests/live-online.mjs",
     "test:account:emulator": "firebase emulators:exec --project dartisan-rules-test --only auth,firestore,functions \"node tests/delete-account.emulator.mjs\"",
     "test:online:emulator": "firebase emulators:exec --project dartisan-rules-test --only auth,firestore,functions \"node tests/online-function.emulator.mjs\"",
@@ -15,16 +18,20 @@
     "test:rules:secure": "firebase emulators:exec --project dartisan-rules-test --only firestore \"node --test tests/firestore.secure.rules.test.mjs\""
   },
   "dependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
     "@fontsource-variable/inter": "^5.3.0",
     "@heroicons/react": "^2.2.0",
     "autoprefixer": "^10.5.0",
     "firebase": "^12.10.0",
+    "jose": "^6.2.17",
     "next": "^16.4.5",
     "postcss": "^8.5.32",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -32,6 +39,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^16.4.5",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
   },
