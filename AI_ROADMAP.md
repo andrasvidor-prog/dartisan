@@ -24,9 +24,9 @@ Frissítve: 2026. november 14. Az összegek **becslések egy használatra**, USD
 | 5 | Rivális hang | Személyre szabott, játékos meccselőzetes | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
 | 6 | Fantomellenfél | A saját korábbi köreid ritmusa ellen játszol | 0 $ | Kész a következő befejezett X01 meccstől; eltérő helyzetben a szokásos bot folytatja |
 | 7 | Fordulópont-visszajátszás | A meccs legfontosabb három körét emeli ki | 0 $ | Kész a következő befejezett X01 meccstől; helyi idővonal és kiemelések |
-| 8 | Kiszálló-útvonal térkép | Több lehetséges út és a választás kockázata | 0 $ | Következő |
-| 9 | Gyenge szektorok edzése | Saját célzási adatokból választ feladatot | 0 $ | Következő |
-| 10 | Személyes szintlépési cél | Egy elérhető heti cél valós múltbeli adatokból | 0 $ | Következő |
+| 8 | Kiszálló-útvonal térkép | Több szabályosan ellenőrzött kiszálló vagy előkészítés 1–3 nyílra | 0 $ | Kész; interaktív maradék, nyílszám és kiszállószabály |
+| 9 | Gyenge szektorok edzése | Saját célzási adatokból választott 30 nyilas feladat | 0 $ | Kész; találati arány, visszavonás, eredmény és célzott mérés |
+| 10 | Személyes szintlépési cél | Aktuális hétre számolt cél a mentett meccsekből | 0 $ | Kész; X01 meccsekből hétfőn újraszámolva |
 
 ## 2. hullám – különleges edző és meccsélmény
 

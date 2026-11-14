@@ -5,11 +5,13 @@ import { ArrowLeftIcon, ArrowPathIcon, BoltIcon, ChartBarIcon, FireIcon, Megapho
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
-import { buildDartsDna, type DnaAim, type DnaMatch } from '../lib/dartsDna';
+import { buildDartsDna, type DnaAim } from '../lib/dartsDna';
+import type { DatedDnaMatch } from '../lib/weeklyGoal';
 import { createLocalNarrative } from '../lib/localCoach';
 import { readMatchVisits } from '../lib/matchReplay';
 import { AiCoach } from './AiCoach';
 import { MatchTimeMachine, type ReplayMatch } from './MatchTimeMachine';
+import { AiPracticeLab } from './AiPracticeLab';
 import type { MatchConfig } from './SetupScreen';
 import type { Language } from '@/app/page';
 
@@ -95,7 +97,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
 }) {
   const t = words[lang];
   const [tab, setTab] = useState<StudioTab>('dna');
-  const [matches, setMatches] = useState<DnaMatch[]>([]);
+  const [matches, setMatches] = useState<DatedDnaMatch[]>([]);
   const [replay, setReplay] = useState<ReplayMatch | null>(null);
   const [aims, setAims] = useState<DnaAim[]>([]);
   const [loadedUid, setLoadedUid] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
     if (!user) return;
     let alive = true;
     Promise.all([
-      getDocs(query(collection(db, 'users', user.uid, 'matchHistory'), orderBy('date', 'desc'), limit(20))),
+      getDocs(query(collection(db, 'users', user.uid, 'matchHistory'), orderBy('date', 'desc'), limit(50))),
       getDocs(collection(db, 'users', user.uid, 'stats', 'aims', 'targets')),
     ]).then(([history, targets]) => {
       if (!alive) return;
@@ -139,6 +141,8 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
         const stats = data.stats || {};
         const metric = (key: string) => typeof stats[key] === 'number' && Number.isFinite(stats[key]) ? stats[key] as number : null;
         return {
+          date: typeof data.date === 'string' ? data.date : null,
+          mode: typeof data.mode === 'string' ? data.mode : undefined,
           won: data.won === true,
           average: metric('average'), first9Average: metric('first9Average'),
           checkoutRate: metric('checkoutAttempts') === 0 || (metric('checkoutAttempts') === null && metric('checkoutPct') === 0)
@@ -284,6 +288,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
       </section>
 
       <MatchTimeMachine lang={lang} replay={ready ? replay : null} onStartGhost={startGhost} loading={loading} signedOut={!signedUser} />
+      <AiPracticeLab dna={dna} matches={ready ? matches : []} lang={lang} currentUser={signedUser} onStartDrill={onStartDrill} />
 
       <section className="rounded-3xl border border-[#b655ff]/25 bg-[#12141a] p-5 sm:p-7">
         <div className="flex items-center gap-2"><SparklesIcon className="h-5 w-5 text-[#b655ff]" /><h2 className="text-xl sm:text-2xl font-black text-white uppercase italic">{t.aiTitle}</h2></div>

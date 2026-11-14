@@ -59,6 +59,7 @@ export type MatchConfig = {
     cricketVariant?: 'standard' | 'cutthroat';
     practiceType?: 'around' | 'bobs27' | '121' | 'hunter' | 'math' | 'ai_drill';
     drillTarget?: number;
+    drillTargetKey?: string;
     players: PlayerConfig[]; 
     startingScore: number; 
     setsToWin: number; 

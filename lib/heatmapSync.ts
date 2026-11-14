@@ -34,6 +34,17 @@ export function matchHeatmapEvent(uid: string, setupId: string, val: number, mul
     };
 }
 
+export function targetDrillHeatmapEvent(uid: string, setupId: string, val: number, mult: number, target: string): HeatmapEvent | null {
+    const landed = dartSector(val, mult);
+    if (!landed || !isSector(target)) return null;
+    return {
+        id: crypto.randomUUID(), uid, setupId: safeSetupId(setupId), source: 'training',
+        target, landed, landingHits: landed === 'MISS' ? 0 : 1,
+        attempts: 1, hits: aimedHit(target, landed) ? 1 : 0,
+        unlocatedMisses: landed === 'MISS' ? 1 : 0, direction: 1,
+    };
+}
+
 export function hunterHeatmapEvent(uid: string, setupId: string, target: string, hits: number): HeatmapEvent {
     const recordedHits = Number.isInteger(hits) ? Math.max(0, Math.min(3, hits)) : 0;
     return {

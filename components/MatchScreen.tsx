@@ -1,7 +1,7 @@
 // 1. RÉSZ - MatchScreen.tsx (Kérd a folytatást a következő üzenetben!)
 'use client';
 
-import { useState, useEffect, useCallback, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { 
     BackspaceIcon, TrophyIcon, ChartBarIcon, BoltIcon, XMarkIcon, 
     ComputerDesktopIcon, InformationCircleIcon, CheckCircleIcon, 
@@ -19,7 +19,8 @@ import { recordQuestMatch } from '../lib/quests';
 import { TutorialOverlay, shouldShowTutorial, type TutorialKey } from './TutorialOverlay';
 import { HeatmapBoard, HeatmapLegend } from './HeatmapBoard';
 import { isSector, normalizeHeatmapData, type HeatmapData } from '../lib/heatmap';
-import { applyHeatmapEvent, enqueueHeatmapEvent, flushHeatmapQueue, hunterHeatmapEvent, matchHeatmapEvent, reverseHeatmapEvent, type HeatmapEvent } from '../lib/heatmapSync';
+import { applyHeatmapEvent, enqueueHeatmapEvent, flushHeatmapQueue, hunterHeatmapEvent, matchHeatmapEvent, targetDrillHeatmapEvent, reverseHeatmapEvent, type HeatmapEvent } from '../lib/heatmapSync';
+import { drillHit, drillResult, parseDrillTarget } from '../lib/targetDrill';
 import type { MatchConfig } from './SetupScreen';
 import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 import { orderedVisits, recordVisit, type MatchVisit } from '../lib/matchReplay';
@@ -469,6 +470,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [checkoutDoubleConfirmed, setCheckoutDoubleConfirmed] = useState(false);
   const [currentDarts, setCurrentDarts] = useState<Dart[]>(config.resumeState ? config.resumeState.currentDarts || [] : []);
+  const [drillDarts, setDrillDarts] = useState<Dart[]>([]);
+  const drillTarget = useMemo(() => parseDrillTarget(config.drillTargetKey || (config.drillTarget === 25 ? '25' : `S${config.drillTarget ?? 20}`)) || parseDrillTarget('S20')!, [config.drillTargetKey, config.drillTarget]);
+  const drillStats = drillResult(drillDarts, drillTarget);
   const [aimTarget, setAimTarget] = useState<string>(() => {
       const resumed = config.resumeState?.aimTarget;
       return resumed && isSector(resumed) ? resumed : '';
@@ -1102,9 +1106,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     const dartPoints = val * mult;
 
     if (val === 0) triggerHaptic('miss'); else triggerHaptic('hit');
-    const heatmapEvent = !activeP.isBot && config.gameMode !== 'practice'
-        ? matchHeatmapEvent(auth.currentUser?.uid || 'guest', config.dartSetupId || 'default', val, mult, aimTarget || null)
-        : null;
+    const heatmapEvent = activeP.isBot ? null : config.gameMode === 'practice' && config.practiceType === 'ai_drill'
+        ? targetDrillHeatmapEvent(auth.currentUser?.uid || 'guest', config.dartSetupId || 'default', val, mult, drillTarget.key)
+        : config.gameMode !== 'practice'
+          ? matchHeatmapEvent(auth.currentUser?.uid || 'guest', config.dartSetupId || 'default', val, mult, aimTarget || null)
+          : null;
     if (heatmapEvent) recordHeatmapLocal(heatmapEvent);
     const recordedDart: Dart = { val, mult, ...(heatmapEvent ? { heatmapEvent } : {}) };
     
@@ -1112,8 +1118,14 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         const newDarts = [...currentDarts, { val, mult }]; 
         
         if (config.practiceType === 'ai_drill') {
-            if (val === config.drillTarget) announceScore('Hit'); else announceScore('Miss');
-            setCurrentDarts(newDarts);
+            const hit = drillHit(recordedDart, drillTarget);
+            announceScore(hit ? (lang === 'hu' ? 'Találat' : 'Hit') : (lang === 'hu' ? 'Mellé' : 'Miss'));
+            setDrillDarts(previous => [...previous, recordedDart]);
+            setCurrentDarts([...currentDarts, recordedDart]);
+            if (drillDarts.length + 1 >= 30) {
+                setPracticeStatus('won');
+                triggerCelebration('checkout', `${drillStats.hits + (hit ? 1 : 0)}/30`, lang === 'hu' ? 'Célzott edzés kész' : 'Target drill complete', activeP.color);
+            }
             return;
         }
 
@@ -1264,7 +1276,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (validPts === 180) announceScore('', true, false); 
         else announceScore(validPts.toString()); 
     }
-  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt, aimTarget, recordHeatmapLocal, finishAsyncLeg, isAsync, triggerCelebration, legNumber]);
+  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt, aimTarget, recordHeatmapLocal, finishAsyncLeg, isAsync, triggerCelebration, legNumber, drillTarget, drillDarts.length, drillStats.hits, lang]);
 
   const handleDartPress = (val: number, overrideMult?: number) => { 
       triggerHaptic('tap');
@@ -1445,6 +1457,15 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     setIsVerified(false);
 
     if (config.gameMode === 'practice') {
+        if (config.practiceType === 'ai_drill') {
+            const last = drillDarts.at(-1);
+            if (!last) return;
+            undoHeatmapDart(last);
+            const remaining = drillDarts.slice(0, -1);
+            setDrillDarts(remaining);
+            setCurrentDarts(remaining.slice(remaining.length - remaining.length % 3));
+            return;
+        }
         if (config.practiceType === 'math' && mathInput.length > 0) { setMathInput(mathInput.slice(0, -1)); return; }
         if (currentDarts.length === 0) return;
         const lastDart = currentDarts[currentDarts.length - 1];
@@ -1486,6 +1507,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const handleNextLegOrSet = () => { 
       if (config.gameMode === 'practice') { 
           setPracticeTarget(1); setBobsScore(27); setBobsRoundScore(0); 
+          if (config.practiceType === 'ai_drill') setDrillDarts([]);
           if (config.practiceType === '121') { setC121Target(121); setC121DartsLeft(9); setPlayers(prev => [{...prev[0], score: 121, history: []}]); }
           if (config.practiceType === 'hunter') { setHunterRound(1); setHunterTotalHits(0); setHunterTargetStr(HUNTER_TARGETS[0]); recordedHunterRound.current = ''; }
           if (config.practiceType === 'math') { setMathRound(1); setMathScore(0); setMathInput(''); generateMathQuestion(); }
@@ -1589,7 +1611,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   const isBotTurn = safePlayer?.isBot && !isAsync;
   const activeRemaining = fastPreviewRemaining ?? (safePlayer ? displayedRemaining(safePlayer, activePlayer, currentDarts, config) : 0);
   const isStandalonePractice = config.gameMode === 'practice' && (config.practiceType === 'hunter' || config.practiceType === 'math');
-  const practiceName = config.practiceType === 'around' ? 'Around Clock' : config.practiceType === 'bobs27' ? "Bob's 27" : config.practiceType === '121' ? '121 Challenge' : config.practiceType === 'hunter' ? (lang === 'hu' ? 'Célpont vadász' : 'Target Hunter') : config.practiceType === 'math' ? 'Darts Math' : (lang === 'hu' ? 'AI edzés' : 'AI drill');
+  const practiceName = config.practiceType === 'around' ? 'Around Clock' : config.practiceType === 'bobs27' ? "Bob's 27" : config.practiceType === '121' ? '121 Challenge' : config.practiceType === 'hunter' ? (lang === 'hu' ? 'Célpont vadász' : 'Target Hunter') : config.practiceType === 'math' ? 'Darts Math' : (lang === 'hu' ? 'Célzott edzés' : 'Target drill');
   const recordedSectorHits = Object.values(normalizeHeatmapData(fullHeatmapData)).reduce((total, entry) => total + entry.hits, 0);
 
   const recObj = getCheckoutTable(activeRemaining, 3 - currentDarts.length);
@@ -1598,7 +1620,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-x-hidden overflow-y-auto tracking-tight pt-[calc(1rem+var(--app-safe-top))]">
       <AppFeedback feedback={feedback} lang={lang} onClose={() => setFeedback(null)} />
       <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto mb-2 flex items-center justify-between shrink-0">
-        <div className="text-[10px] sm:text-xs font-black tracking-[0.2em] text-emerald-400 uppercase">Dartisan <span className="text-slate-500">· {config.gameMode === 'challenge' ? (lang === 'hu' ? 'Online meccs' : 'Online match') : (lang === 'hu' ? 'Mérkőzés' : 'Match')}</span></div>
+        <div className="text-[10px] sm:text-xs font-black tracking-[0.2em] text-emerald-400 uppercase">Dartisan <span className="text-slate-500">· {config.gameMode === 'challenge' ? (lang === 'hu' ? 'Online meccs' : 'Online match') : config.gameMode === 'practice' ? (lang === 'hu' ? 'Edzés' : 'Training') : (lang === 'hu' ? 'Mérkőzés' : 'Match')}</span></div>
         <div className="flex items-center gap-2">
           {tutKey && <button onClick={() => setShowTutorial(true)} aria-label={lang === 'hu' ? 'Játékszabályok' : 'Game rules'} className="h-9 w-9 flex items-center justify-center text-slate-300 hover:text-amber-400 bg-slate-900 rounded-full border border-slate-700 font-black">?</button>}
           <button onClick={() => window.open('/tv', '_blank')} aria-label={lang === 'hu' ? 'TV nézet megnyitása' : 'Open TV view'} className="h-9 min-w-9 px-2 text-slate-300 hover:text-cyan-400 bg-slate-900 rounded-full border border-slate-700 text-[10px] font-black uppercase">TV</button>
@@ -1614,7 +1636,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               return (
                   <div key={pl.id} aria-current={activePlayer === pl.id ? 'true' : undefined} className={`min-w-0 min-h-[110px] sm:min-h-[124px] rounded-2xl sm:rounded-3xl flex flex-col items-center justify-center border-2 transition-colors duration-300 ${activePlayer === pl.id ? `bg-slate-800/90 ${pColBor}` : 'bg-slate-900/75 border-slate-700/70'}`}>
                       <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wide truncate w-full text-center px-2 ${activePlayer === pl.id ? pColTxt : 'text-slate-300'}`}>{pl.name}</span>
-                      <span aria-label={pl.id === activePlayer && fastPreviewRemaining !== null ? (lang === 'hu' ? `Előnézet: ${fastPreviewRemaining} pont marad` : `Preview: ${fastPreviewRemaining} points remaining`) : undefined} className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.id === activePlayer && fastPreviewRemaining !== null ? fastPreviewRemaining : displayedRemaining(pl, activePlayer, currentDarts, config)}</span>
+                      <span aria-label={pl.id === activePlayer && fastPreviewRemaining !== null ? (lang === 'hu' ? `Előnézet: ${fastPreviewRemaining} pont marad` : `Preview: ${fastPreviewRemaining} points remaining`) : undefined} className={`text-4xl sm:text-5xl lg:text-6xl font-black font-mono leading-none tabular-nums ${activePlayer === pl.id ? 'text-white' : 'text-slate-200'}`}>{config.gameMode === 'practice' ? config.practiceType === 'ai_drill' ? drillStats.hits : config.practiceType === 'bobs27' ? bobsScore : config.practiceType === 'hunter' ? hunterTotalHits : config.practiceType === 'math' ? mathScore : config.practiceType === 'around' ? practiceTarget === 25 ? 'BULL' : practiceTarget : pl.score : pl.id === activePlayer && fastPreviewRemaining !== null ? fastPreviewRemaining : displayedRemaining(pl, activePlayer, currentDarts, config)}</span>
                       <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase">{config.gameMode === 'practice' ? practiceName : <>{lang === 'hu' ? 'Szett' : 'Set'} {pl.setsWon} · {lang === 'hu' ? 'Leg' : 'Leg'} {pl.legsWon}</>}</span>
                       {config.gameMode !== 'practice' && <span className="text-[10px] sm:text-xs font-bold text-slate-400 tabular-nums">{lang === 'hu' ? 'Utolsó kör' : 'Last visit'}: <span className="text-white font-black">{pl.lastVisit ?? '—'}</span></span>}
                   </div>
@@ -1643,8 +1665,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       {config.gameMode === 'practice' && (
         <section aria-label={lang === 'hu' ? 'Edzés állása' : 'Training progress'} className="w-full max-w-[1100px] mx-auto px-3 sm:px-6 pb-3 shrink-0">
           <div className="rounded-2xl border border-cyan-500/25 bg-gradient-to-r from-cyan-500/10 to-[#12141a] p-3 sm:p-4">
-            <div className="flex items-center justify-between gap-3 mb-2"><span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">{practiceName}</span><span className="text-[10px] font-black text-slate-400">{config.practiceType === 'around' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'bobs27' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'hunter' ? `${hunterRound}/10` : config.practiceType === 'math' ? `${mathRound}/10` : config.practiceType === '121' ? `${c121DartsLeft} ${lang === 'hu' ? 'nyíl maradt' : 'darts left'}` : `${currentDarts.length}/3`}</span></div>
-            <p className="text-sm sm:text-base font-black text-white">{config.practiceType === 'around' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'BULL' : practiceTarget}` : config.practiceType === 'bobs27' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'D-BULL' : `D${practiceTarget}`} · ${lang === 'hu' ? 'Pont' : 'Score'}: ${bobsScore}` : config.practiceType === '121' ? `${lang === 'hu' ? 'Kiszálló' : 'Checkout'}: ${c121Target} · ${lang === 'hu' ? 'Maradék' : 'Remaining'}: ${players[0]?.score}` : config.practiceType === 'hunter' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${hunterTargetStr} · ${hunterTotalHits}/30 ${lang === 'hu' ? 'találat' : 'hits'}` : config.practiceType === 'math' ? `${mathQuestion.start} − ${mathQuestion.dartText} = ?` : `${lang === 'hu' ? 'Célpont' : 'Target'}: ${config.drillTarget ?? 20}`}</p>
+            <div className="flex items-center justify-between gap-3 mb-2"><span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">{practiceName}</span><span className="text-[10px] font-black text-slate-400">{config.practiceType === 'around' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'bobs27' ? `${practiceTarget === 25 ? 21 : practiceTarget}/21` : config.practiceType === 'hunter' ? `${hunterRound}/10` : config.practiceType === 'math' ? `${mathRound}/10` : config.practiceType === '121' ? `${c121DartsLeft} ${lang === 'hu' ? 'nyíl maradt' : 'darts left'}` : config.practiceType === 'ai_drill' ? `${drillStats.throws}/30` : `${currentDarts.length}/3`}</span></div>
+            <p className="text-sm sm:text-base font-black text-white">{config.practiceType === 'around' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'BULL' : practiceTarget}` : config.practiceType === 'bobs27' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${practiceTarget === 25 ? 'D-BULL' : `D${practiceTarget}`} · ${lang === 'hu' ? 'Pont' : 'Score'}: ${bobsScore}` : config.practiceType === '121' ? `${lang === 'hu' ? 'Kiszálló' : 'Checkout'}: ${c121Target} · ${lang === 'hu' ? 'Maradék' : 'Remaining'}: ${players[0]?.score}` : config.practiceType === 'hunter' ? `${lang === 'hu' ? 'Célpont' : 'Target'}: ${hunterTargetStr} · ${hunterTotalHits}/30 ${lang === 'hu' ? 'találat' : 'hits'}` : config.practiceType === 'math' ? `${mathQuestion.start} − ${mathQuestion.dartText} = ?` : `${lang === 'hu' ? 'Célpont' : 'Target'}: ${drillTarget.key} · ${drillStats.hits}/30 ${lang === 'hu' ? 'találat' : 'hits'} · ${drillStats.accuracy}%`}</p>
             {config.practiceType === 'hunter' && practiceStatus === 'playing' && <div className="grid grid-cols-4 gap-2 mt-3">{[0, 1, 2, 3].map(hits => <button key={hits} type="button" onClick={() => handleHunterHit(hits)} className="min-h-12 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 font-black text-sm hover:bg-cyan-500/25">{hits} {lang === 'hu' ? 'találat' : 'hits'}</button>)}</div>}
             {config.practiceType === 'math' && practiceStatus === 'playing' && <form onSubmit={event => { event.preventDefault(); handleMathEnter(); }} className="flex gap-2 mt-3"><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={lang === 'hu' ? 'Eredmény' : 'Answer'} value={mathInput} onChange={event => setMathInput(event.target.value.replace(/\D/g, '').slice(0, 3))} className="min-w-0 flex-1 h-12 rounded-xl bg-slate-950 border border-slate-700 px-4 text-white font-mono font-bold outline-none focus:border-cyan-400"/><button type="submit" disabled={!mathInput} className="h-12 px-4 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase disabled:opacity-40">{lang === 'hu' ? 'Ellenőrzés' : 'Check'}</button></form>}
             {practiceStatus === 'won_121_round' && <p className="text-xs font-bold text-emerald-300 mt-2">{lang === 'hu' ? 'Sikeres kiszálló! A következő célpont indul.' : 'Checkout complete! The next target is starting.'}</p>}
@@ -1652,11 +1674,13 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         </section>
       )}
 
-      <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
+      {config.practiceType === 'ai_drill' && config.gameMode === 'practice' ? <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
+        {[[lang === 'hu' ? 'Célpont' : 'Target', drillTarget.key], [lang === 'hu' ? 'Utolsó nyíl' : 'Last dart', drillDarts.length ? drillHit(drillDarts.at(-1)!, drillTarget) ? (lang === 'hu' ? 'Találat' : 'Hit') : (lang === 'hu' ? 'Mellé' : 'Miss') : '—'], [lang === 'hu' ? 'Pontosság' : 'Accuracy', `${drillStats.accuracy}%`]].map(([label, value]) => <div key={label} className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{label}</div><div className="text-sm font-black truncate text-white tabular-nums">{value}</div></div>)}
+      </div> : <div className="w-full max-w-[1100px] px-3 sm:px-6 mx-auto pb-2 grid grid-cols-3 gap-2 shrink-0">
         <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Soron' : 'Turn'}</div><div className={`text-sm font-black truncate ${colTxt}`}>{safePlayer?.name}</div></div>
         <div className="min-w-0 rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? 'Legutóbbi kör' : 'Latest visit'}</div><div className="text-sm font-black text-white tabular-nums">{lastCompletedPlayer?.lastVisit ?? '—'}</div><div className="text-[9px] text-slate-400 truncate">{lastCompletedPlayer?.lastVisit != null ? lastCompletedPlayer.name : '\u00a0'}</div></div>
         <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-2 py-2 text-center"><div className="text-[9px] uppercase font-black tracking-wide text-slate-400">{lang === 'hu' ? '3 nyilas átlag' : '3-dart avg'}</div><div className="text-sm font-black text-white tabular-nums">{safePlayer?.totalDarts ? ((safePlayer.totalPoints / safePlayer.totalDarts) * 3).toFixed(1) : '—'}</div></div>
-      </div>
+      </div>}
 
       <div className={`px-3 sm:px-6 bg-[#12141a] border-t border-slate-800 rounded-t-[2.5rem] w-full max-w-[1100px] mx-auto flex-col relative ${isStandalonePractice ? 'hidden' : 'flex'} ${inputMode === 'board' ? 'shrink-0 pt-2 pb-2' : 'shrink-0 pt-3 pb-6 sm:pb-4 md:flex-1 md:shrink md:min-h-[540px]'}`}>
 
@@ -1799,7 +1823,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           <div className="w-full max-w-md rounded-3xl border border-cyan-500/30 bg-[#121821] p-6 sm:p-8 text-center shadow-2xl">
             <TrophyIcon className={`w-14 h-14 mx-auto mb-4 ${practiceStatus === 'won' ? 'text-emerald-400' : 'text-rose-400'}`} />
             <h2 className="text-2xl font-black text-white uppercase mb-2">{practiceStatus === 'won' ? (lang === 'hu' ? 'Edzés kész!' : 'Training complete!') : (lang === 'hu' ? 'Edzés vége' : 'Training over')}</h2>
-            <p className="text-sm text-slate-300 mb-6">{practiceName}</p>
+            <p className="text-sm text-slate-300 mb-6">{practiceName}{config.practiceType === 'ai_drill' ? ` · ${drillTarget.key}: ${drillStats.hits}/30 (${drillStats.accuracy}%)` : ''}</p>
             <div className="grid grid-cols-2 gap-3"><button type="button" onClick={handleExit} className="h-12 rounded-xl bg-slate-700 text-white text-xs font-black uppercase">{lang === 'hu' ? 'Vissza' : 'Back'}</button><button type="button" onClick={handleNextLegOrSet} className="h-12 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black uppercase">{lang === 'hu' ? 'Újra' : 'Retry'}</button></div>
           </div>
         </div>

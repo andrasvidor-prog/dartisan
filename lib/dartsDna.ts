@@ -36,6 +36,18 @@ const average = (values: number[]) =>
 const round = (value: number | null, digits = 1) =>
   value === null ? null : Math.round(value * 10 ** digits) / 10 ** digits;
 
+export function aggregateDnaAims(aims: DnaAim[]): DnaAim[] {
+  const totals = new Map<string, DnaAim>();
+  for (const aim of aims) {
+    if (!/^([SDT](?:[1-9]|1[0-9]|20)|25|50|BULL)$/.test(aim.target) ||
+        !Number.isFinite(aim.attempts) || !Number.isFinite(aim.hits) ||
+        aim.attempts < 0 || aim.hits < 0 || aim.hits > aim.attempts) continue;
+    const previous = totals.get(aim.target) || { target: aim.target, attempts: 0, hits: 0 };
+    totals.set(aim.target, { target: aim.target, attempts: previous.attempts + aim.attempts, hits: previous.hits + aim.hits });
+  }
+  return [...totals.values()];
+}
+
 export function buildDartsDna(matches: DnaMatch[], aims: DnaAim[]): DartsDna {
   const recent = matches.slice(0, 20);
   const validAverages = recent.map(match => match.average).filter(finite);
@@ -51,9 +63,7 @@ export function buildDartsDna(matches: DnaMatch[], aims: DnaAim[]): DartsDna {
   const consistency = validAverages.length >= 3 && avg !== null
     ? Math.sqrt(average(validAverages.map(value => (value - avg) ** 2))!) : null;
 
-  const measured = aims.filter(item => /^([SDT](?:[1-9]|1[0-9]|20)|25|50|BULL)$/.test(item.target) &&
-    Number.isFinite(item.attempts) && Number.isFinite(item.hits) && item.attempts >= 8 &&
-    item.hits >= 0 && item.hits <= item.attempts);
+  const measured = aggregateDnaAims(aims).filter(item => item.attempts >= 8);
   const byAccuracy = [...measured].sort((a, b) =>
     b.hits / b.attempts - a.hits / a.attempts || b.attempts - a.attempts);
   const strongestTarget = byAccuracy[0] || null;
