@@ -92,7 +92,9 @@ exports.awardLocalMatch = onCall({ region: 'europe-west1' }, async request => {
   const userRef = db.doc(`users/${uid}`);
   const publicRef = db.doc(`publicProfiles/${uid}`);
   const awardRef = userRef.collection('awards').doc(result.matchId);
-  const today = utcDay(new Date());
+  const now = new Date();
+  const today = utcDay(now);
+  const week = utcWeek(now);
   return db.runTransaction(async transaction => {
     const [profile, priorAward, publicProfile] = await Promise.all([
       transaction.get(userRef), transaction.get(awardRef), transaction.get(publicRef),
@@ -101,10 +103,13 @@ exports.awardLocalMatch = onCall({ region: 'europe-west1' }, async request => {
     if (!profile.exists) throw new HttpsError('failed-precondition', 'Profile is not ready.');
     const data = profile.data();
     const usedToday = data.localXpDay === today ? Number(data.localXpToday || 0) : 0;
+    const sameWeek = data.weekKey === week;
     const nominalXp = result.won ? (result.mode === 'career' ? 40 : 20) : 5;
     const xp = Math.max(0, Math.min(nominalXp, 200 - usedToday));
     const additions = {
       xp: FieldValue.increment(xp),
+      weeklyXp: sameWeek ? FieldValue.increment(xp) : xp,
+      weekKey: week,
       matchesPlayed: FieldValue.increment(1),
       matchesWon: FieldValue.increment(result.won ? 1 : 0),
       totalDarts: FieldValue.increment(metrics.totalDarts),

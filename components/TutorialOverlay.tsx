@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { XMarkIcon, ChevronRightIcon, ChevronLeftIcon, LightBulbIcon } from '@heroicons/react/24/outline';
 
 export type TutorialKey =
@@ -140,16 +140,16 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
         label: 'Szegmens Vadász',
         steps: [
             {
-                emoji: '🤖',
-                title: 'AI-vezérelt edzés',
-                body: 'Az alkalmazás kiad egy célpontot (pl. D16, T20, BULL). Dobd rá a 3 nyilad, és add meg, hányszor találtad el. A találatokat a személyes találati térképen láthatod.',
-                tip: 'Minél több adatot gyűjtesz, annál okosabb lesz a kiszálló ajánló!',
+                emoji: '🎯',
+                title: 'Célpont alapú edzés',
+                body: 'Az alkalmazás kiad egy célpontot (pl. D16, T20, BULL). Dobj rá három nyilat, majd add meg, hányszor találtad el. A rögzített találatok a személyes térképen jelennek meg.',
+                tip: 'A térkép a rögzített találatok számát mutatja, nem a célzási pontosságot.',
             },
             {
                 emoji: '📈',
                 title: 'Miért hasznos?',
-                body: 'Az összegyűjtött adatok alapján az AI tanul a gyengeségeidről és erősségeidről, és meccsközben pontosabb, személyre szabott kiszálló javaslatokat ad.',
-                tip: 'Legalább 10-15 kört játssz minden szegmenssel az optimális eredményért!',
+                body: 'A gyakorlás után áttekintheted, mely célpontokat találtad el gyakrabban. Az eredmények segítenek kiválasztani a következő edzés fókuszát.',
+                tip: 'Több kör után jobban látszik, melyik célpont igényel gyakorlást.',
             },
         ],
     },
@@ -177,7 +177,7 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
         steps: [
             {
                 emoji: '📡',
-                title: 'Aszinkron kihívás',
+                title: 'Online kihívás',
                 body: 'A kihívásos módban valós időben játszol egy barát ellen az interneten keresztül. Mindkettőtök dobásait a felhő szinkronizálja. Ossz meg egy kódot a barátodnak!',
                 tip: 'Mindkét félnek aktív internetkapcsolat szükséges!',
             },
@@ -185,7 +185,7 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
                 emoji: '📋',
                 title: 'Hogyan kell csatlakozni',
                 body: 'Másold ki a kódot és küldd el a barátodnak. A barát a Setup képernyőn a "Kihívás" fülön, "Csatlakozás" opcióval léphet be a kóddal.',
-                tip: 'A kód 24 óráig érvényes.',
+                tip: 'A kód addig használható, amíg a szoba elérhető.',
             },
         ],
     },
@@ -208,60 +208,143 @@ const TUTORIALS: Record<TutorialKey, { label: string; steps: Step[] }> = {
             {
                 emoji: '🏆',
                 title: 'Ranglista',
-                body: 'A Ranglista fülön a legjobb játékosok heti XP szerinti sorrendje látható. Játssz minél több meccset, hogy feljebb kerülj! XP győzelemért: 100, vereségért: 10.',
-                tip: 'A heti XP minden hétfőn nullázódik!',
+                body: 'A Ranglista fülön a játékosok heti XP szerinti sorrendje látható. Játssz meccseket, hogy gyarapítsd a profilod statisztikáit.',
+                tip: 'A ranglista adataihoz bejelentkezés szükséges.',
             },
         ],
     },
 };
 
+const TUTORIALS_EN: Record<TutorialKey, { label: string; steps: Pick<Step, 'title' | 'body' | 'tip'>[] }> = {
+    x01: { label: 'X01 match', steps: [
+        { title: 'Reach exactly zero', body: 'Reduce your starting score (for example, 501) to exactly zero. A visit has up to three darts, and each dart is deducted as you enter it.', tip: 'Your visit score is the sum of its darts.' },
+        { title: 'Checking out', body: 'With double-out, the finishing dart must land in a double segment or the inner bull. If you go below zero or leave one, the visit is a bust and your score returns to its value before the visit.', tip: 'Common finishes include D20 (40), D16 (32) and D10 (20).' },
+        { title: 'Fast input', body: 'In Fast mode, enter your visit total and press Enter. Use Pro or Board mode to record each dart and its sector for detailed statistics.', tip: 'A suggested finish appears when your remaining score is within checkout range.' },
+        { title: 'Legs and sets', body: 'A successful checkout wins a leg. When playing sets, win the required number of legs to take a set. The first player to reach the set target wins the match.', tip: 'The first-nine average helps you track your opening pace.' },
+    ] },
+    cricket: { label: 'Cricket', steps: [
+        { title: 'What is Cricket?', body: 'Close 20, 19, 18, 17, 16, 15 and bull while managing the score against your opponent. Two players take turns.', tip: 'Cricket rewards both accuracy and timing.' },
+        { title: 'Marks', body: 'Three marks close a target. A single earns one mark, a double two, and a treble three. The marks appear beside each target.', tip: 'Treble 20 closes 20 with one dart.' },
+        { title: 'Scoring', body: 'In standard Cricket, extra hits score while your target is closed and your opponent’s is still open. In Cut-throat, those points go to the open opponent instead.', tip: 'Closing a high-value target early can change the match.' },
+        { title: 'Winning', body: 'Close every target and have at least as many points as your opponent in standard Cricket. In Cut-throat, you need no more points than your opponent.', tip: 'Watch both marks and points.' },
+    ] },
+    practice_atc: { label: 'Around the Clock', steps: [
+        { title: 'Work around the board', body: 'Hit 1 through 20 in order, then bull. A single, double or treble counts. Move to the next number only after a hit.', tip: 'A miss leaves the same target active.' },
+        { title: 'Record your darts', body: 'In Pro input, select the number you hit or tap Miss. You get three darts per visit.', tip: 'A useful drill for accuracy and focus.' },
+    ] },
+    practice_bobs: { label: "Bob's 27", steps: [
+        { title: 'Chase the doubles', body: 'Start on 27 points and work through D1 to D20, then bull. A hit adds the double value; a target you miss with all three darts deducts it.', tip: 'The drill ends if your score falls below zero.' },
+        { title: 'Strategy', body: 'Early doubles are worth little, while the later ones can lift or sink your score quickly. Aim for your best total.', tip: 'A useful checkout practice routine.' },
+    ] },
+    practice_121: { label: '121 checkout drill', steps: [
+        { title: 'Finish 121 in nine darts', body: 'You have nine darts to check out from 121. A finish must end on a double or inner bull. Succeed and the next level starts at 122.', tip: 'Finishes above 100 require planning.' },
+        { title: 'Busts', body: 'If you go below zero, leave one, or finish without a valid double, that visit is a bust and its starting score is restored.', tip: 'Use the suggested checkout route at the top.' },
+    ] },
+    practice_hunter: { label: 'Target Hunter', steps: [
+        { title: 'Target practice', body: 'The app gives you a target such as D16, T20 or bull. Throw three darts and record how many hit. Recorded hits appear on your personal hit map.', tip: 'The map shows recorded hits, not aiming accuracy.' },
+        { title: 'Why practice this way?', body: 'Review which targets you hit more often and choose a focus for your next session.', tip: 'Several visits make patterns easier to see.' },
+    ] },
+    career: { label: 'Career mode', steps: [
+        { title: 'Championship path', body: 'Play through 15 opponents. A win unlocks the next match; after a loss, you can retry the same opponent.', tip: 'You can take the career at your own pace.' },
+        { title: 'Rising difficulty', body: 'Opponents become stronger as you progress. Later bots can score more consistently and check out in combinations.', tip: 'Career matches also contribute to your statistics.' },
+    ] },
+    challenge: { label: 'Online challenge', steps: [
+        { title: 'Play a friend online', body: 'Create a room and share its code with a friend. Both players’ results are synchronized through the cloud during the match.', tip: 'Both players need an internet connection.' },
+        { title: 'Join a room', body: 'Your friend opens the Versus tab on Match Setup and enters the room code under Join Match.', tip: 'The code works while the room remains available.' },
+    ] },
+    setup: { label: 'Match setup', steps: [
+        { title: 'Choose match rules', body: 'Choose a mode, players, starting score, and the required legs and sets. You can also set check-in and checkout rules.', tip: 'Edit each player’s name and color on their card.' },
+        { title: 'Players and bots', body: 'Add up to four players for a local match. Turn on Bot if you need an opponent and choose its difficulty.', tip: 'Bot matches also contribute to your local statistics.' },
+        { title: 'Leaderboard', body: 'The Leaderboard tab shows players by weekly XP. Sign in to save your profile and appear in the community view.', tip: 'Online rankings need a signed-in account.' },
+    ] },
+};
+
 interface TutorialOverlayProps {
     tutorialKey: TutorialKey;
+    lang: 'hu' | 'en';
     onClose: () => void;
 }
 
 const STORAGE_PREFIX = 'dartisan_tutorial_seen_';
 
-export function TutorialOverlay({ tutorialKey, onClose }: TutorialOverlayProps) {
+export function TutorialOverlay({ tutorialKey, lang, onClose }: TutorialOverlayProps) {
     const [step, setStep] = useState(0);
-    const tut = TUTORIALS[tutorialKey];
-    if (!tut) return null;
+    const overlayRef = useRef<HTMLDivElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
+    const huTutorial = TUTORIALS[tutorialKey];
+    const translation = TUTORIALS_EN[tutorialKey];
+    const tut = lang === 'hu' ? huTutorial : {
+        label: translation.label,
+        steps: huTutorial.steps.map((huStep, index) => ({ ...huStep, ...translation.steps[index] })),
+    };
     const total = tut.steps.length;
     const current = tut.steps[step];
     const isLast = step === total - 1;
 
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
         if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_PREFIX + tutorialKey, '1');
         }
         onClose();
-    };
+    }, [tutorialKey, onClose]);
+
+    useEffect(() => {
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const siblings = Array.from(overlayRef.current?.parentElement?.children || [])
+            .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== overlayRef.current)
+            .map(element => ({ element, inert: element.inert, ariaHidden: element.getAttribute('aria-hidden') }));
+        siblings.forEach(({ element }) => { element.inert = true; element.setAttribute('aria-hidden', 'true'); });
+        closeButtonRef.current?.focus();
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') { event.preventDefault(); handleClose(); return; }
+            if (event.key !== 'Tab') return;
+            const buttons = Array.from(overlayRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []);
+            if (!buttons.length) return;
+            const first = buttons[0];
+            const last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            siblings.forEach(({ element, inert, ariaHidden }) => {
+                element.inert = inert;
+                if (ariaHidden === null) element.removeAttribute('aria-hidden');
+                else element.setAttribute('aria-hidden', ariaHidden);
+            });
+            if (previousFocus?.isConnected) previousFocus.focus();
+        };
+    }, [handleClose]);
+
+    useEffect(() => { contentRef.current?.scrollTo({ top: 0 }); }, [step]);
 
     return (
-        <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ paddingTop: 'calc(1rem + var(--app-safe-top))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+        <div ref={overlayRef} className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ paddingTop: 'calc(1rem + var(--app-safe-top))', paddingBottom: 'calc(1rem + var(--app-safe-bottom))' }}>
             <div role="dialog" aria-modal="true" aria-label={tut.label} className="w-full max-w-md bg-[#12141a] rounded-[2rem] border border-slate-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100dvh - var(--app-safe-top) - env(safe-area-inset-bottom) - 2rem)' }}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-slate-800 shrink-0">
                     <div className="flex items-center gap-2">
-                        <LightBulbIcon className="h-5 w-5 text-amber-400" />
+                        <LightBulbIcon className="h-5 w-5 text-cyan-400" />
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                            {tut.label} – Tutorial
+                            {tut.label} – {lang === 'hu' ? 'Útmutató' : 'Guide'}
                         </span>
                     </div>
-                    <button onClick={handleClose} aria-label="Bezárás" className="p-1.5 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+                    <button ref={closeButtonRef} onClick={handleClose} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="min-h-11 min-w-11 flex items-center justify-center bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                         <XMarkIcon className="h-4 w-4" />
                     </button>
                 </div>
 
                 {/* Step content */}
-                <div className="px-6 py-6 min-h-0 overflow-y-auto">
+                <div ref={contentRef} className="px-6 py-6 min-h-0 overflow-y-auto">
                     <div className="text-5xl text-center mb-4">{current.emoji}</div>
                     <h2 className="text-xl font-black text-white text-center uppercase italic mb-3">{current.title}</h2>
                     <p className="text-sm text-slate-300 text-center leading-relaxed mb-4">{current.body}</p>
                     {current.tip && (
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 flex gap-2 items-start">
-                            <span className="text-amber-400 text-sm shrink-0">💡</span>
-                            <p className="text-xs text-amber-300 font-bold leading-snug">{current.tip}</p>
+                        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl px-4 py-2.5 flex gap-2 items-start">
+                            <span className="text-cyan-400 text-sm shrink-0">💡</span>
+                            <p className="text-xs text-cyan-200 font-bold leading-snug">{current.tip}</p>
                         </div>
                     )}
                 </div>
@@ -271,8 +354,10 @@ export function TutorialOverlay({ tutorialKey, onClose }: TutorialOverlayProps) 
                     {/* Dots */}
                     <div className="flex justify-center gap-1.5 mb-4">
                         {tut.steps.map((_, i) => (
-                            <button key={i} onClick={() => setStep(i)}
-                                className={`rounded-full transition-all ${i === step ? 'w-5 h-2 bg-emerald-500' : 'w-2 h-2 bg-slate-700 hover:bg-slate-500'}`} />
+                            <button key={i} type="button" onClick={() => setStep(i)} aria-label={lang === 'hu' ? `${i + 1}. lépés` : `Step ${i + 1}`} aria-current={i === step ? 'step' : undefined}
+                                className="min-h-8 min-w-8 flex items-center justify-center rounded-full">
+                                <span className={`h-2 rounded-full transition-all ${i === step ? 'w-5 bg-emerald-500' : 'w-2 bg-slate-700 hover:bg-slate-500'}`} />
+                            </button>
                         ))}
                     </div>
                     {/* Navigation */}
@@ -280,23 +365,23 @@ export function TutorialOverlay({ tutorialKey, onClose }: TutorialOverlayProps) 
                         {step > 0 && (
                             <button onClick={() => setStep(s => s - 1)}
                                 className="flex-1 h-12 rounded-2xl bg-slate-800 text-slate-300 font-black text-sm flex items-center justify-center gap-1 hover:bg-slate-700 transition-colors">
-                                <ChevronLeftIcon className="h-4 w-4" /> Vissza
+                                <ChevronLeftIcon className="h-4 w-4" /> {lang === 'hu' ? 'Vissza' : 'Back'}
                             </button>
                         )}
                         {isLast ? (
                             <button onClick={handleClose}
                                 className="flex-1 h-12 rounded-2xl bg-emerald-500 text-slate-900 font-black text-sm uppercase tracking-wider hover:opacity-90 transition-opacity">
-                                Értem, kezdjük! 🎯
+                                {lang === 'hu' ? 'Értem, kezdjük!' : 'Got it, let’s play!'} 🎯
                             </button>
                         ) : (
                             <button onClick={() => setStep(s => s + 1)}
                                 className="flex-1 h-12 rounded-2xl bg-emerald-500 text-slate-900 font-black text-sm flex items-center justify-center gap-1 hover:opacity-90 transition-opacity">
-                                Következő <ChevronRightIcon className="h-4 w-4" />
+                                {lang === 'hu' ? 'Következő' : 'Next'} <ChevronRightIcon className="h-4 w-4" />
                             </button>
                         )}
                     </div>
-                    <button onClick={handleClose} className="w-full mt-2 text-[10px] text-slate-600 hover:text-slate-500 font-bold uppercase tracking-widest transition-colors py-1">
-                        Kihagyom (ne mutasd újra)
+                    <button onClick={handleClose} className="w-full min-h-11 mt-2 text-[10px] text-slate-400 hover:text-slate-200 font-bold uppercase tracking-widest transition-colors">
+                        {lang === 'hu' ? 'Kihagyom (ne mutasd újra)' : 'Skip (do not show again)'}
                     </button>
                 </div>
             </div>

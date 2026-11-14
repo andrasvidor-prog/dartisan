@@ -41,6 +41,7 @@ export type SavedMatch = {
     matchId?: string;
     authUid?: string;
     onlineLeg?: number;
+    pendingOnlineDarts?: number;
     resolvedLegNumber?: number;
 };
 export type PlayerConfig = { 
@@ -177,6 +178,8 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
 
   const [currentUser, setCurrentUser] = useState<DisplayUser | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
+  const [leaderboardStatus, setLeaderboardStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [leaderboardRetry, setLeaderboardRetry] = useState(0);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [emailInput, setEmailInput] = useState('');
@@ -189,11 +192,16 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
   const authDialogRef = useRef<HTMLDivElement>(null);
   const questsDialogRef = useRef<HTMLDivElement>(null);
   const bullOffDialogRef = useRef<HTMLDivElement>(null);
+  const emailLinkAttemptedRef = useRef(false);
 
   useEffect(() => {
     const dialog = showAuth ? authDialogRef.current : showQuests ? questsDialogRef.current : bullOffOpen ? bullOffDialogRef.current : null;
     if (!dialog) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const siblings = Array.from(dialog.parentElement?.children || [])
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== dialog)
+      .map(element => ({ element, inert: element.inert, ariaHidden: element.getAttribute('aria-hidden') }));
+    siblings.forEach(({ element }) => { element.inert = true; element.setAttribute('aria-hidden', 'true'); });
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'))
       .filter(element => element.getClientRects().length > 0);
     focusable()[0]?.focus();
@@ -215,12 +223,18 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
     dialog.addEventListener('keydown', handleDialogKeyDown);
     return () => {
       dialog.removeEventListener('keydown', handleDialogKeyDown);
+      siblings.forEach(({ element, inert, ariaHidden }) => {
+        element.inert = inert;
+        if (ariaHidden === null) element.removeAttribute('aria-hidden');
+        else element.setAttribute('aria-hidden', ariaHidden);
+      });
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [showAuth, showQuests, bullOffOpen]);
 
   useEffect(() => {
-    if (!isSignInWithEmailLink(auth, window.location.href)) return;
+    if (emailLinkAttemptedRef.current || !isSignInWithEmailLink(auth, window.location.href)) return;
+    emailLinkAttemptedRef.current = true;
     const email = localStorage.getItem('dartisan_email_link');
     if (!email) {
       queueMicrotask(() => {
@@ -233,8 +247,16 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
       .then(() => {
         localStorage.removeItem('dartisan_email_link');
         window.history.replaceState({}, '', window.location.pathname);
+        setEmailLinkNeedsAddress(false);
+        setShowAuth(false);
       })
-      .catch((error) => { console.error('Email link sign-in:', error); setAuthError(lang === 'hu' ? 'A belépési link érvénytelen vagy lejárt.' : 'The sign-in link is invalid or expired.'); setShowAuth(true); });
+      .catch((error) => {
+        console.error('Email link sign-in:', error);
+        setEmailInput(email);
+        setEmailLinkNeedsAddress(true);
+        setAuthError(lang === 'hu' ? 'A belépési link érvénytelen, lejárt, vagy másik e-mail-címhez tartozik. Ellenőrizd a címet, majd próbáld újra.' : 'The sign-in link is invalid, expired, or belongs to another email address. Check the address and try again.');
+        setShowAuth(true);
+      });
   }, [lang]);
 
   const completeEmailLink = async () => {
@@ -304,9 +326,10 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
       const q = query(collection(db, 'publicProfiles'), orderBy('weeklyXp', 'desc'), limit(50));
       const unsub = onSnapshot(q, (snap) => {
           setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, (err) => { console.error("Ranglista hiba:", err); });
+          setLeaderboardStatus('ready');
+      }, (err) => { console.error('Leaderboard read failed:', err); setLeaderboardStatus('error'); });
       return () => unsub();
-  }, [tab, currentUser]);
+  }, [tab, currentUser, leaderboardRetry]);
 
   useEffect(() => {
     if (!hostedCode) return;
@@ -667,8 +690,8 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
           <div ref={authDialogRef} role="dialog" aria-modal="true" aria-labelledby="auth-title" className="fixed inset-0 z-[200] bg-[#0b0d11]/95 flex flex-col items-center justify-start sm:justify-center px-6 pt-[calc(5rem+var(--app-safe-top))] pb-6 text-center backdrop-blur-md overflow-y-auto custom-scrollbar">
               <button onClick={() => setShowAuth(false)} aria-label={lang === 'hu' ? 'Bezárás' : 'Close'} className="fixed top-[calc(1rem+var(--app-safe-top))] right-4 p-2 text-slate-500 hover:text-white z-10"><XMarkIcon className="h-7 w-7" /></button>
               <KeyIcon className="h-16 w-16 shrink-0 text-emerald-400 mb-6" />
-              <h2 id="auth-title" className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 shrink-0">{currentUser ? 'Fiókod' : txt.login}</h2>
-              <p className="text-slate-400 text-sm font-bold mb-8 max-w-xs">{currentUser ? 'Sikeresen bejelentkeztél!' : txt.loginDesc}</p>
+              <h2 id="auth-title" className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 shrink-0">{currentUser ? (lang === 'hu' ? 'Fiókod' : 'Your account') : txt.login}</h2>
+              <p className="text-slate-400 text-sm font-bold mb-8 max-w-xs">{currentUser ? (lang === 'hu' ? 'Sikeresen bejelentkeztél!' : 'You are signed in!') : txt.loginDesc}</p>
               
               <div className="w-full max-w-sm flex flex-col gap-3">
                   {currentUser && !emailLinkNeedsAddress ? (
@@ -678,12 +701,12 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                             <span className="text-xl font-black text-white">{currentUser.displayName || currentUser.email?.split('@')[0]}</span>
                             <span className="text-xs font-bold text-slate-500">{currentUser.email}</span>
                         </div>
-                        <button onClick={handleLogout} disabled={isLoggingIn} className="w-full h-14 bg-rose-500/10 border border-rose-500/30 text-rose-500 rounded-xl font-black uppercase tracking-widest mb-4 disabled:opacity-50">Kijelentkezés</button>
+                        <button onClick={handleLogout} disabled={isLoggingIn} className="w-full h-14 bg-rose-500/10 border border-rose-500/30 text-rose-500 rounded-xl font-black uppercase tracking-widest mb-4 disabled:opacity-50">{lang === 'hu' ? 'Kijelentkezés' : 'Sign out'}</button>
                       </>
                   ) : (
                       <>
                         <input type="email" autoComplete="email" placeholder="Email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors" />
-                        {emailLinkNeedsAddress && <p className="text-left text-xs font-semibold text-cyan-200">{lang === 'hu' ? 'A belépési linket másik eszközön nyitottad meg. Add meg pontosan azt az e-mail-címet, amelyre a linket kaptad.' : 'You opened the sign-in link on another device. Enter the exact email address that received the link.'}</p>}
+                        {emailLinkNeedsAddress && <p className="text-left text-xs font-semibold text-cyan-200">{lang === 'hu' ? 'Add meg pontosan azt az e-mail-címet, amelyre a belépési linket kaptad.' : 'Enter the exact email address that received the sign-in link.'}</p>}
                         {emailLinkNeedsAddress && <button type="button" onClick={completeEmailLink} disabled={isLoggingIn} className="h-14 bg-cyan-500 text-slate-950 rounded-xl font-black uppercase tracking-wider text-xs disabled:opacity-50">{lang === 'hu' ? 'Belépés az e-mailes linkkel' : 'Complete email link sign-in'}</button>}
                         <div className="relative">
                             <input type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder={txt.password} value={passwordInput} onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); setAuthErrorCode(''); setAuthNotice(''); }} onKeyDown={(e) => e.key === 'Enter' && handleEmailLogin()} className="w-full h-14 bg-[#12141a] border border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors pr-12" />
@@ -710,11 +733,11 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                         <div className="flex items-center gap-4 my-2 opacity-50"><div className="flex-1 h-px bg-slate-700"></div><span className="text-[10px] font-black uppercase">{txt.or}</span><div className="flex-1 h-px bg-slate-700"></div></div>
                         <button onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full h-14 bg-white text-slate-900 rounded-xl font-black flex items-center justify-center gap-3 hover:bg-slate-200 transition-colors disabled:opacity-50 active:scale-95">
                             <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> 
-                            {isLoggingIn ? 'Bejelentkezés...' : 'Google Bejelentkezés'}
+                            {isLoggingIn ? (lang === 'hu' ? 'Bejelentkezés…' : 'Signing in…') : (lang === 'hu' ? 'Google bejelentkezés' : 'Sign in with Google')}
                         </button>
                         <button onClick={APPLE_WEB_AUTH_READY ? handleAppleLogin : undefined} disabled={isLoggingIn || !APPLE_WEB_AUTH_READY} title={!APPLE_WEB_AUTH_READY ? (lang === 'hu' ? 'Az Apple belépéshez az Apple Developer beállításai még hiányoznak' : 'Apple Developer setup is still required') : undefined} className="w-full h-14 bg-black border border-slate-700 text-white rounded-xl font-black flex items-center justify-center gap-3 hover:bg-slate-900 transition-colors disabled:opacity-45 disabled:cursor-not-allowed active:scale-95">
                             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.8-3.12 1.81s-1.63-.5-3.05-.5c-1.4 0-2.1.53-3.01.53s-2.04-.84-3.11-1.89C2.5 17.8 1.14 13.9 1.48 11.23c.18-1.5.95-2.85 2.15-3.75 1.15-.84 2.6-.96 3.84-.96 1.43 0 2.5.6 3.24.6.72 0 1.95-.7 3.52-.7 1.25 0 2.6.22 3.65 1.08 1.05.85 1.7 2.06 1.84 3.45-2.3.93-3.12 3.25-1.87 4.97.74 1.03 1.82 1.6 2.92 1.84-.36 1.15-1 2.38-1.72 3.53zm-3.3-15.01c.7-.84 1.16-2.04 1.05-3.23-1.07.05-2.38.74-3.12 1.6-.6.67-1.15 1.88-1.01 3.08 1.2.09 2.38-.6 3.08-1.45z"/></svg> 
-                            {isLoggingIn ? 'Bejelentkezés...' : APPLE_WEB_AUTH_READY ? 'Apple Bejelentkezés' : lang === 'hu' ? 'Apple belépés · előkészítés alatt' : 'Apple sign-in · coming soon'}
+                            {isLoggingIn ? (lang === 'hu' ? 'Bejelentkezés…' : 'Signing in…') : APPLE_WEB_AUTH_READY ? (lang === 'hu' ? 'Apple bejelentkezés' : 'Sign in with Apple') : lang === 'hu' ? 'Apple belépés · előkészítés alatt' : 'Apple sign-in · coming soon'}
                         </button>
                       </>
                   )}
@@ -925,11 +948,11 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                         {tab === 'x01' && p.isBot && (
                             <div className="grid grid-cols-5 gap-1.5 mt-3 pt-3 border-t border-slate-800/50">
                                 {[
-                                    { lvl: 1, name: 'Kezdő' },
-                                    { lvl: 3, name: 'Amatőr' },
-                                    { lvl: 5, name: 'Haladó' },
-                                    { lvl: 8, name: 'Profi' },
-                                    { lvl: 10, name: 'Mester' }
+                                    { lvl: 1, name: lang === 'hu' ? 'Kezdő' : 'Beginner' },
+                                    { lvl: 3, name: lang === 'hu' ? 'Amatőr' : 'Amateur' },
+                                    { lvl: 5, name: lang === 'hu' ? 'Haladó' : 'Advanced' },
+                                    { lvl: 8, name: lang === 'hu' ? 'Profi' : 'Pro' },
+                                    { lvl: 10, name: lang === 'hu' ? 'Mester' : 'Master' }
                                 ].map((diff) => (
                                     <button
                                         key={diff.lvl}
@@ -1176,10 +1199,17 @@ export function SetupScreen({ lang, initialTab = 'x01', onStart, onOpenProfile, 
                     <div className="flex flex-col items-center bg-slate-900/50 p-6 rounded-2xl border border-slate-800 w-full">
                         <KeyIcon className="h-12 w-12 text-slate-500 mb-4" />
                         <p className="text-sm text-slate-400 font-bold mb-4">{lang === 'hu' ? 'A ranglista megtekintéséhez jelentkezz be!' : 'Sign in to view the leaderboard!'}</p>
-                        <button onClick={() => setShowAuth(true)} className="w-full h-12 bg-[#ff2b5e] text-white rounded-xl font-black uppercase tracking-widest text-xs">Bejelentkezés</button>
+                        <button onClick={() => setShowAuth(true)} className="w-full h-12 bg-[#ff2b5e] text-white rounded-xl font-black uppercase tracking-widest text-xs">{txt.login}</button>
                     </div>
+                ) : leaderboardStatus === 'error' ? (
+                    <div role="alert" className="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-center">
+                        <p className="text-sm font-bold text-rose-200">{lang === 'hu' ? 'A ranglista most nem érhető el. Ellenőrizd a kapcsolatot, majd próbáld újra.' : 'The leaderboard is unavailable. Check your connection and try again.'}</p>
+                        <button type="button" onClick={() => { setLeaderboardStatus('loading'); setLeaderboardRetry(value => value + 1); }} className="mt-4 min-h-11 rounded-xl bg-rose-500 px-5 text-xs font-black uppercase text-white">{lang === 'hu' ? 'Újrapróbálás' : 'Retry'}</button>
+                    </div>
+                ) : leaderboardStatus === 'loading' ? (
+                    <div role="status" className="text-center py-8 text-slate-400 font-bold text-xs uppercase tracking-widest">{lang === 'hu' ? 'Ranglista betöltése…' : 'Loading leaderboard…'}</div>
                 ) : leaderboard.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 font-bold animate-pulse text-xs uppercase tracking-widest">Ranglista betöltése...</div>
+                    <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/50 p-6 text-center text-sm font-semibold text-slate-300">{lang === 'hu' ? 'Még nincs játékos a ranglistán.' : 'No players are on the leaderboard yet.'}</div>
                 ) : (
                     <div className="flex flex-col gap-2 max-h-72 overflow-y-auto w-full pr-1 custom-scrollbar">
                         {leaderboard.map((user, idx) => (

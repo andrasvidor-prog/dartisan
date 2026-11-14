@@ -404,9 +404,25 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   
   const [asyncState, setAsyncState] = useState<'playing' | 'waiting_leg' | 'waiting_match'>(config.resumeState?.asyncState === 'waiting_leg' ? 'waiting_leg' : 'playing');
   const [fbSyncData, setFbSyncData] = useState<OnlineRoom | null>(null);
+  const [pendingOnlineDarts, setPendingOnlineDarts] = useState<number | null>(config.resumeState?.pendingOnlineDarts ?? null);
+  const [isSubmittingAsyncLeg, setIsSubmittingAsyncLeg] = useState(false);
+  const [onlineError, setOnlineError] = useState<string | null>(null);
+  const [browserOnline, setBrowserOnline] = useState(true);
   const resolvedLegRef = useRef(config.resumeState?.resolvedLegNumber || 0);
   const resolvingLegRef = useRef(0);
   const restoringOnlineRef = useRef(isAsync && !!config.resumeState);
+
+  useEffect(() => {
+      if (!isAsync) return;
+      const syncConnection = () => setBrowserOnline(navigator.onLine);
+      syncConnection();
+      window.addEventListener('online', syncConnection);
+      window.addEventListener('offline', syncConnection);
+      return () => {
+          window.removeEventListener('online', syncConnection);
+          window.removeEventListener('offline', syncConnection);
+      };
+  }, [isAsync]);
   
   const [players, setPlayers] = useState<PlayerData[]>(() => {
     if (config.resumeState) {
@@ -705,8 +721,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             authUid: isAsync ? auth.currentUser?.uid : undefined,
             onlineLeg: isAsync ? (fbSyncData?.state?.currentLeg ?? config.resumeState?.onlineLeg ?? 1) : undefined,
             resolvedLegNumber: isAsync ? resolvedLegRef.current : undefined,
+            pendingOnlineDarts: isAsync ? pendingOnlineDarts ?? undefined : undefined,
         }));
-  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData, aimTarget, fullHeatmapData]);
+  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData, aimTarget, fullHeatmapData, pendingOnlineDarts]);
 
   useEffect(() => {
       if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
@@ -845,16 +862,22 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               if (restoringOnlineRef.current) {
                   restoringOnlineRef.current = false;
                   resolvedLegRef.current = state.resolvedLeg?.number || 0;
-                  if (state.currentLeg > (config.resumeState?.onlineLeg || 1)) {
+                  const legAdvanced = state.currentLeg > (config.resumeState?.onlineLeg || 1);
+                  if (legAdvanced) {
                       setPlayers(prev => prev.map(player => ({ ...player,
                           score: player.customStartingScore ?? config.startingScore,
                           currentLegDarts: 0, opened: config.checkIn === 'single', history: [], lastVisit: null,
                       })));
                       setCurrentDarts([]);
                       setIsLegWinner(false); setIsSetWinner(false);
+                      setPendingOnlineDarts(null);
                   }
-                  setAsyncState(state[`${role}Darts`] !== null ? 'waiting_leg' : 'playing');
+                  setAsyncState(!legAdvanced && (state[`${role}Darts`] !== null || config.resumeState?.pendingOnlineDarts) ? 'waiting_leg' : 'playing');
                   if (state.winner) setIsMatchWinner(true);
+              }
+              if (state[`${role}Darts`] !== null) {
+                  setPendingOnlineDarts(null);
+                  setOnlineError(null);
               }
               setPlayers(prev => prev.map((player, index) => {
                   const playerRole = index === 0 ? role : oppRole;
@@ -864,25 +887,36 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               const resolved = state.resolvedLeg;
               if (resolved && resolved.number > resolvedLegRef.current) {
                   resolvedLegRef.current = resolved.number;
+                  setPendingOnlineDarts(null);
+                  setOnlineError(null);
                   setAsyncState('playing');
                   if (resolved.matchEnded) setIsMatchWinner(true);
                   else if (resolved.setEnded) setIsSetWinner(true);
                   else setIsLegWinner(true);
-              } else if (!SERVER_MATCH_ENABLED && role === 'host' && state.hostDarts !== null && state.guestDarts !== null && !state.winner && resolvingLegRef.current !== state.currentLeg) {
+              } else if (!SERVER_MATCH_ENABLED && browserOnline && role === 'host' && state.hostDarts !== null && state.guestDarts !== null && !state.winner && resolvingLegRef.current !== state.currentLeg) {
                   resolvingLegRef.current = state.currentLeg;
                   resolveAsyncLeg(state).catch(error => {
                       resolvingLegRef.current = 0;
                       console.error('Online leg resolution failed:', error);
+                      setOnlineError(lang === 'hu' ? 'A leg kiértékelése nem sikerült. A kapcsolat helyreállása után újra próbáljuk.' : 'Could not resolve the leg. We will retry when the connection returns.');
                   });
               }
+          } else {
+              setOnlineError(lang === 'hu' ? 'A szoba már nem érhető el. Lépj vissza a kezdőlapra.' : 'This room is no longer available. Return to the home screen.');
           }
+      }, error => {
+          console.error('Online room synchronization failed:', error);
+          setOnlineError(lang === 'hu' ? 'Nem sikerült szinkronizálni a szobát. Ellenőrizd a kapcsolatot és a bejelentkezést.' : 'Could not sync the room. Check your connection and sign-in.');
       });
       return () => unsubscribe();
-  }, [isAsync, config.challengeCode, role, oppRole, config.legsToWin, config.setsToWin]);
+  }, [isAsync, config.challengeCode, role, oppRole, config.legsToWin, config.setsToWin, config.resumeState?.onlineLeg, config.resumeState?.pendingOnlineDarts, config.startingScore, config.checkIn, lang, browserOnline]);
 
   const finishAsyncLeg = async (totalDartsUsed: number) => {
       if (!config.challengeCode) return;
+      setPendingOnlineDarts(totalDartsUsed);
       setAsyncState('waiting_leg');
+      setIsSubmittingAsyncLeg(true);
+      setOnlineError(null);
       try {
           if (SERVER_MATCH_ENABLED) {
               const submitLeg = httpsCallable<{ roomId: string; darts: number; expectedLeg: number }, { status: string }>(functions, 'submitOnlineLeg');
@@ -890,8 +924,12 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           } else {
               await updateDoc(doc(db, 'matches', config.challengeCode), { [`state.${role}Darts`]: totalDartsUsed });
           }
+          setPendingOnlineDarts(null);
       }
-      catch (error) { setAsyncState('playing'); console.error("Hiba a leg feltöltésekor:", error); }
+      catch (error) {
+          console.error('Online leg upload failed:', error);
+          setOnlineError(lang === 'hu' ? 'A leg eredménye nem ment fel. Az Újraküldés gombbal próbáld újra.' : 'The leg result was not uploaded. Use Resend to try again.');
+      } finally { setIsSubmittingAsyncLeg(false); }
   };
 
   const announceScore = useCallback((scoreStr: string, is180: boolean = false, isBust: boolean = false, isCheckout: boolean = false) => {
@@ -1482,7 +1520,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       && safePlayer && safePlayer.score - pendingFastPoints >= 0
       && (config.checkout === 'single' || safePlayer.score - pendingFastPoints !== 1)
       ? safePlayer.score - pendingFastPoints : null;
-  const lastCompletedPlayer = isAsync || players.length === 1
+  const lastCompletedPlayer = isAsync || players.length === 1 || isLegWinner || isSetWinner || isMatchWinner
       ? safePlayer
       : players[(activePlayer - 1 + players.length) % players.length];
   const matchWinnerPlayer = players.reduce((winner, player) => player.setsWon > winner.setsWon ? player : winner, players[0]);
@@ -1530,6 +1568,24 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
               );
           })}
       </div>
+
+      {isAsync && (asyncState !== 'playing' || onlineError || !browserOnline) && (
+        <div role="status" aria-live="polite" className="w-full max-w-[1100px] mx-auto px-3 sm:px-6 pb-3 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-500/35 bg-cyan-500/10 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-black text-cyan-100">{asyncState === 'waiting_leg'
+                ? pendingOnlineDarts !== null
+                  ? (isSubmittingAsyncLeg ? (lang === 'hu' ? 'Leg eredményének feltöltése…' : 'Uploading leg result…') : (lang === 'hu' ? 'A leg eredménye még nincs megerősítve' : 'Leg result not confirmed yet'))
+                  : (lang === 'hu' ? 'Várakozás az ellenfélre' : 'Waiting for opponent')
+                : (lang === 'hu' ? 'Online meccs' : 'Online match')}</p>
+              {onlineError && <p className="mt-1 text-xs font-semibold text-rose-200">{onlineError}</p>}
+              {!browserOnline && <p className="mt-1 text-xs font-semibold text-cyan-200">{lang === 'hu' ? 'Nincs internetkapcsolat. A meccs helyben megmarad; csatlakozz újra a folytatáshoz.' : 'You are offline. The match remains saved on this device; reconnect to continue.'}</p>}
+              {asyncState === 'waiting_leg' && pendingOnlineDarts === null && !onlineError && <p className="mt-1 text-xs text-slate-300">{lang === 'hu' ? 'A te eredményed rögzítve. A következő leg akkor indul, ha a másik játékos is végez.' : 'Your result is saved. The next leg starts when the other player finishes.'}</p>}
+            </div>
+            {pendingOnlineDarts !== null && !isSubmittingAsyncLeg && <button type="button" onClick={() => void finishAsyncLeg(pendingOnlineDarts)} disabled={!browserOnline} className="min-h-11 shrink-0 rounded-xl bg-cyan-400 px-4 text-xs font-black uppercase text-slate-950 disabled:opacity-40">{lang === 'hu' ? 'Újraküldés' : 'Resend'}</button>}
+          </div>
+        </div>
+      )}
 
       {config.gameMode === 'practice' && (
         <section aria-label={lang === 'hu' ? 'Edzés állása' : 'Training progress'} className="w-full max-w-[1100px] mx-auto px-3 sm:px-6 pb-3 shrink-0">
@@ -1748,7 +1804,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       {isMatchWinner && config.gameMode !== 'practice' && asyncState === 'playing' && (
         <div className="fixed inset-0 z-[100] bg-[#0b0d11]/95 flex flex-col items-center pt-12 px-4 pb-24 overflow-y-auto">
             <div className="fixed inset-0 z-0 opacity-[0.08] pointer-events-none scale-150 transform rotate-[-15deg] flex items-center justify-center">
-                <HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} />
+                <HeatmapBoard data={normalizeHeatmapData(fullHeatmapData)} lang={lang} />
             </div>
             
             <TrophyIcon className="h-24 w-24 text-[#b655ff] mb-3 mt-4 drop-shadow-[0_0_20px_rgba(182,85,255,0.5)] shrink-0 z-10" />
@@ -1783,10 +1839,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                                 {pl.teamId !== undefined && <span className="text-[10px] bg-slate-700 text-white px-2 py-1 rounded-md mr-2 align-middle">T{pl.teamId + 1}</span>}
                                 {pl.name}
                             </span>
-                            <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest truncate">{lang === 'hu' ? 'Első 9 nyíl' : 'First 9 darts'}: {((pl.first9Points/(pl.first9Darts||1))*3).toFixed(1)}</span>
+                            <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest truncate">{lang === 'hu' ? 'Első 9 nyíl' : 'First 9 darts'}: {pl.first9Darts ? ((pl.first9Points / pl.first9Darts) * 3).toFixed(1) : '—'}</span>
                         </div>
                         <div className="text-right shrink-0">
-                           <span className="text-4xl sm:text-5xl font-mono font-black text-white leading-none">{((pl.totalPoints/(pl.totalDarts||1))*3).toFixed(1)}</span>
+                           <span className="text-4xl sm:text-5xl font-mono font-black text-white leading-none">{pl.totalDarts ? ((pl.totalPoints / pl.totalDarts) * 3).toFixed(1) : '—'}</span>
                            <span className="text-[10px] sm:text-xs font-mono font-bold text-slate-500 ml-1 sm:ml-2">AVG</span>
                         </div>
                      </div>
@@ -1836,7 +1892,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
 
       {/* ── Tutorial overlay (shown once per mode) ───────────────────────── */}
       {showTutorial && tutKey && (
-          <TutorialOverlay tutorialKey={tutKey} onClose={() => setShowTutorial(false)} />
+          <TutorialOverlay tutorialKey={tutKey} lang={lang} onClose={() => setShowTutorial(false)} />
       )}
 
       {/* ── TV Mode fullscreen dartboard overlay ─────────────────────────── */}
@@ -1928,7 +1984,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           {/* Bottom label */}
           <div className="text-center pb-3 shrink-0">
               <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.3em]">
-                  {currentDarts.length === 0 ? 'Várakozás a dobásra...' : `${currentDarts.length}/3 nyíl bedobva`}
+                  {currentDarts.length === 0 ? (lang === 'hu' ? 'Várakozás a dobásra…' : 'Waiting for a dart…') : lang === 'hu' ? `${currentDarts.length}/3 nyíl bedobva` : `${currentDarts.length}/3 darts thrown`}
               </p>
           </div>
         </div>

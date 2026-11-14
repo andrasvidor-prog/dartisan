@@ -124,7 +124,7 @@ export function CricketScreen({ config, lang, onBack }: CricketScreenProps) {
     return (
         <div className="fixed inset-0 bg-[#0b0d11] text-slate-200 flex flex-col overflow-hidden">
             {showTutorial && (
-                <TutorialOverlay tutorialKey="cricket" onClose={() => setShowTutorial(false)} />
+                <TutorialOverlay tutorialKey="cricket" lang={lang} onClose={() => setShowTutorial(false)} />
             )}
 
             {/* Header */}

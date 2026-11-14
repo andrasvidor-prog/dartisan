@@ -530,7 +530,7 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
                                     <span className="bg-emerald-500 text-slate-900 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest">{tr('Szint', 'Level')} {level}</span>
                                     {(stats.streak || 0) > 1 && (
                                         <span className="bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1">
-                                            🔥 {stats.streak} {tr('nap', 'days')}
+                                            🔥 {stats.streak} {tr('nap', stats.streak === 1 ? 'day' : 'days')}
                                         </span>
                                     )}
                                 </div>
@@ -570,7 +570,7 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
                                     { label: tr('Első 9 átl.', 'First 9 avg'), value: f9avg, color: 'text-[#b655ff]' },
                                     { label: tr('Kiszálló%', 'Checkout %'), value: `${coPct}%`, color: 'text-cyan-400' },
                                     { label: tr('Max kiszálló', 'High checkout'), value: stats.highestCheckout || 0, color: 'text-cyan-400' },
-                                    { label: tr('Max streak', 'Best streak'), value: `${stats.streak || 1} ${tr('nap', 'days')}`, color: 'text-cyan-400' },
+                                    { label: tr('Leghosszabb sorozat', 'Best streak'), value: `${stats.streak || 1} ${tr('nap', (stats.streak || 1) === 1 ? 'day' : 'days')}`, color: 'text-cyan-400' },
                                 ].map(s => (
                                     <div key={s.label} className="bg-[#12141a] p-4 rounded-2xl border border-slate-800 flex flex-col gap-1 text-center">
                                         <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{s.label}</span>

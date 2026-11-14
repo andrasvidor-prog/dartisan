@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInAnonymously, createUserWithEmailAndPassword, deleteUser } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator, httpsCallable } from 'firebase/functions';
 
 const projectId = 'dartisan-rules-test';
+const requireAdmin = createRequire(new URL('../functions/package.json', import.meta.url));
+const { initializeApp: initializeAdmin, deleteApp: deleteAdmin } = requireAdmin('firebase-admin/app');
+const { getFirestore: getAdminFirestore } = requireAdmin('firebase-admin/firestore');
+const adminApp = initializeAdmin({ projectId }, 'online-function-test');
+const adminDb = getAdminFirestore(adminApp);
 const clients = [];
 
 async function client(name, registered = false) {
@@ -64,7 +70,13 @@ try {
   assert.deepEqual((await localAward(summary)).data, { xp: 20, duplicate: true });
   const localProfile = (await getDoc(doc(host.db, 'users', host.user.uid))).data();
   assert.equal(localProfile.xp, 70);
-  assert.equal(localProfile.weeklyXp, 50);
+  assert.equal(localProfile.weeklyXp, 70);
+  assert.equal((await getDoc(doc(host.db, 'publicProfiles', host.user.uid))).data().weeklyXp, 70);
+  await adminDb.doc(`users/${host.user.uid}`).update({ weekKey: '2000-01-03', weeklyXp: 900 });
+  await adminDb.doc(`publicProfiles/${host.user.uid}`).update({ weeklyXp: 900 });
+  assert.deepEqual((await localAward({ ...summary, matchId: crypto.randomUUID() })).data, { xp: 20, duplicate: false });
+  assert.equal((await getDoc(doc(host.db, 'users', host.user.uid))).data().weeklyXp, 20);
+  assert.equal((await getDoc(doc(host.db, 'publicProfiles', host.user.uid))).data().weeklyXp, 20);
   assert.equal((await httpsCallable(host.functions, 'syncLoginStreak')({})).data.streak, 1);
   assert.equal((await hostSubmit({ roomId, darts: 24, expectedLeg: 1 })).data.status, 'resolved');
   await deleteDoc(hostRef);
@@ -74,4 +86,5 @@ try {
     try { await deleteUser(item.user); } catch { /* emulator cleanup */ }
     await deleteApp(item.app);
   }
+  await deleteAdmin(adminApp);
 }
