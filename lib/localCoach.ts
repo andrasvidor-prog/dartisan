@@ -10,8 +10,16 @@ export function createLocalNarrative(mode: CoachMode, lang: 'hu' | 'en', dna: Da
   const number = (value: number | null, digits = 1) => value === null ? '—' : new Intl.NumberFormat(lang === 'hu' ? 'hu-HU' : 'en-US', {
     maximumFractionDigits: digits,
   }).format(value);
-  const focusHu = dna.focus === 'doubles' ? 'a dupla kiszállók' : dna.focus === 'opening' ? 'az első kilenc nyíl' : 'a ponttermelés';
-  const focusEn = dna.focus === 'doubles' ? 'double finishes' : dna.focus === 'opening' ? 'your first nine darts' : 'scoring';
+  const focusHu = dna.focus === 'doubles' ? 'a dupla kiszállók' : dna.focus === 'opening' ? 'az első kilenc nyíl' : dna.focus === 'consistency' ? 'a meccsstabilitás' : 'a ponttermelés';
+  const focusEn = dna.focus === 'doubles' ? 'double finishes' : dna.focus === 'opening' ? 'your first nine darts' : dna.focus === 'consistency' ? 'match consistency' : 'scoring';
+  const nextHu = dna.focus === 'consistency' ? 'Játssz három 501-es leget egymás után, és figyeld, mennyire tartod az átlagodat a teljes meccsen.'
+    : dna.focus === 'doubles' ? 'Játssz egy Bob’s 27-et, majd egy 501-es leget, és figyeld a duplákra dobott nyilakat.'
+      : dna.focus === 'opening' ? 'Játssz három 501-es leget, és minden alkalommal jegyezd fel az első kilenc nyíl átlagát.'
+        : 'Kezdj 10 perc T20–T19 célzással, majd játssz egy 501-es leget, és hasonlítsd össze az új eredményt.';
+  const nextEn = dna.focus === 'consistency' ? 'Play three 501 legs in a row and see how well your average holds through the match.'
+    : dna.focus === 'doubles' ? 'Play Bob’s 27, then a 501 leg, and track your darts at doubles.'
+      : dna.focus === 'opening' ? 'Play three 501 legs and record your first-nine average each time.'
+        : 'Start with ten minutes aiming at T20 and T19, then play a 501 leg and compare the result.';
   const sampleHu = dna.confidence === 'low' ? 'Ez még kevés meccs, ezért a minták változhatnak. ' : '';
   const sampleEn = dna.confidence === 'low' ? 'This is a small sample, so patterns may change. ' : '';
 
@@ -19,8 +27,8 @@ export function createLocalNarrative(mode: CoachMode, lang: 'hu' | 'en', dna: Da
     const targetHu = dna.weakestTarget ? `A célzott nyilaknál ${dna.weakestTarget.target} most ${number(dna.weakestTarget.hits / dna.weakestTarget.attempts * 100, 0)}%-os; erre legalább 8 kísérlet ad alapot.` : '';
     const targetEn = dna.weakestTarget ? `Your aimed darts hit ${dna.weakestTarget.target} ${number(dna.weakestTarget.hits / dna.weakestTarget.attempts * 100, 0)}% of the time, based on at least eight attempts.` : '';
     return lang === 'hu'
-      ? `${dna.matches} mentett meccsed alapján a háromnyilas átlagod ${number(dna.average)}, az első kilenc nyílé ${number(dna.first9Average)}. ${sampleHu}\n\nA következő edzés fókusza: ${focusHu}. ${targetHu} Kezdj 10 perc célzott gyakorlással, utána játssz egy 501-es meccset, és hasonlítsd össze az új eredményt.`
-      : `Across ${dna.matches} recorded matches, your three-dart average is ${number(dna.average)} and first-nine average is ${number(dna.first9Average)}. ${sampleEn}\n\nNext practice focus: ${focusEn}. ${targetEn} Start with ten minutes of targeted practice, then play a 501 match and compare the result.`;
+      ? `${dna.matches} mentett meccsed alapján a háromnyilas átlagod ${number(dna.average)}, az első kilenc nyílé ${number(dna.first9Average)}. ${sampleHu}\n\nA következő edzés fókusza: ${focusHu}. ${targetHu} ${nextHu}`
+      : `Across ${dna.matches} recorded matches, your three-dart average is ${number(dna.average)} and first-nine average is ${number(dna.first9Average)}. ${sampleEn}\n\nNext practice focus: ${focusEn}. ${targetEn} ${nextEn}`;
   }
 
   if (mode === 'broadcast') {

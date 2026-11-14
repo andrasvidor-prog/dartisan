@@ -28,3 +28,12 @@ test('recent improvement and weak doubles are calculated from recorded evidence'
   assert.equal(dna.strongestTarget?.target, 'D16');
   assert.equal(dna.weakestTarget?.target, 'D20');
 });
+
+test('strong scoring and opening shift the next focus to match consistency', () => {
+  const dna = buildDartsDna(Array.from({ length: 9 }, () => ({
+    won: true, average: 96, first9Average: 112, checkoutRate: 1,
+    count100: 3, count140: 1, count180: 0,
+  })), []);
+  assert.equal(dna.focus, 'consistency');
+  assert.equal(dna.profile, 'quickstarter');
+});

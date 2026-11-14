@@ -20,3 +20,12 @@ test('local coach uses recorded figures and offers an achievable challenge in bo
   assert.match(createLocalNarrative('broadcast', 'en', dna), /4 matches/);
   assert.match(createLocalNarrative('rival', 'hu', dna), /55 pontot/);
 });
+
+test('local coach recommends a full-match drill when scoring is already strong', () => {
+  const dna = buildDartsDna(Array.from({ length: 9 }, () => ({
+    won: true, average: 96, first9Average: 112, checkoutRate: 1,
+    count100: 3, count140: 1, count180: 0,
+  })), []);
+  assert.match(createLocalNarrative('tactics', 'hu', dna), /meccsstabilitás/);
+  assert.match(createLocalNarrative('tactics', 'hu', dna), /három 501-es leget/);
+});

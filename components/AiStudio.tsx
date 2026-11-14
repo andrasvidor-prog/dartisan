@@ -46,7 +46,7 @@ const words = {
     failed: 'Az AI-válasz most nem érhető el. Próbáld újra később.',
     loading: 'Elemzés készül…', speak: 'Felolvasás', stop: 'Leállítás',
     quickstarter: 'Villámrajt', finisher: 'Kiszállóvadász', scorer: 'Pontgyáros', builder: 'Épülő játékprofil',
-    focusDoubles: 'Következő fókusz: duplák', focusOpening: 'Következő fókusz: első kilenc nyíl', focusScoring: 'Következő fókusz: ponttermelés',
+    focusDoubles: 'Következő fókusz: duplák', focusOpening: 'Következő fókusz: első kilenc nyíl', focusScoring: 'Következő fókusz: ponttermelés', focusConsistency: 'Következő fókusz: meccsstabilitás',
   },
   en: {
     eyebrow: 'DARTISAN / AI STUDIO', title: 'Your darts fingerprint',
@@ -78,7 +78,7 @@ const words = {
     failed: 'The AI response is unavailable. Please try again later.',
     loading: 'Analyzing…', speak: 'Read aloud', stop: 'Stop',
     quickstarter: 'Fast starter', finisher: 'Checkout hunter', scorer: 'Power scorer', builder: 'Building your game',
-    focusDoubles: 'Next focus: doubles', focusOpening: 'Next focus: first nine', focusScoring: 'Next focus: scoring',
+    focusDoubles: 'Next focus: doubles', focusOpening: 'Next focus: first nine', focusScoring: 'Next focus: scoring', focusConsistency: 'Next focus: match consistency',
   },
 };
 
@@ -191,7 +191,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
   if (tab === 'planner') return <AiCoach lang={lang} onBack={() => setTab('dna')} onStartDrill={onStartDrill} />;
 
   const profiles = { quickstarter: t.quickstarter, finisher: t.finisher, scorer: t.scorer, builder: t.builder };
-  const focus = dna.focus === 'doubles' ? t.focusDoubles : dna.focus === 'opening' ? t.focusOpening : t.focusScoring;
+  const focus = dna.focus === 'doubles' ? t.focusDoubles : dna.focus === 'opening' ? t.focusOpening : dna.focus === 'consistency' ? t.focusConsistency : t.focusScoring;
   const aiModes: { id: AiMode; icon: typeof SparklesIcon; title: string; desc: string }[] = [
     { id: 'tactics', icon: ChartBarIcon, title: t.tactics, desc: t.tacticsDesc },
     { id: 'broadcast', icon: MegaphoneIcon, title: t.broadcast, desc: t.broadcastDesc },
@@ -245,7 +245,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
         <p className="text-xs text-slate-400 mb-4">{t.missionIntro}</p>
         <div className="grid md:grid-cols-3 gap-3">
           {([['doubles', t.mission1, t.mission1Desc], ['finale', t.mission2, t.mission2Desc], ['boss', t.mission3, t.mission3Desc]] as const).map(([kind, title, desc], index) =>
-            <button key={kind} onClick={() => startMission(kind)} className={`group rounded-2xl border p-5 text-left min-h-40 flex flex-col transition-colors hover:border-cyan-400 ${dna.focus === 'doubles' && index === 0 || dna.focus === 'opening' && index === 2 || dna.focus === 'scoring' && index === 1 ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-slate-700 bg-[#12141a]'}`}>
+            <button key={kind} onClick={() => startMission(kind)} className={`group rounded-2xl border p-5 text-left min-h-40 flex flex-col transition-colors hover:border-cyan-400 ${dna.focus === 'doubles' && index === 0 || (dna.focus === 'opening' || dna.focus === 'consistency') && index === 2 || dna.focus === 'scoring' && index === 1 ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-slate-700 bg-[#12141a]'}`}>
               <span className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">0{index + 1} / 03</span>
               <strong className="text-lg font-black text-white uppercase mt-3">{title}</strong>
               <span className="text-xs text-slate-400 mt-1 flex-1">{desc}</span>

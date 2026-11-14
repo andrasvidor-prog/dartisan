@@ -9,7 +9,7 @@ export type DnaMatch = {
 };
 
 export type DnaAim = { target: string; attempts: number; hits: number };
-export type DnaFocus = 'doubles' | 'opening' | 'scoring';
+export type DnaFocus = 'doubles' | 'opening' | 'scoring' | 'consistency';
 
 export type DartsDna = {
   matches: number;
@@ -62,7 +62,9 @@ export function buildDartsDna(matches: DnaMatch[], aims: DnaAim[]): DartsDna {
   const focus: DnaFocus = checkoutRate !== null && checkoutRate < 0.25 && checkout.length >= 2
     ? 'doubles'
     : avg !== null && first9Avg !== null && first9Avg < avg - 5 && first9.length >= 2
-      ? 'opening' : 'scoring';
+      ? 'opening'
+      : avg !== null && validAverages.length >= 4 && (avg >= 70 || (consistency !== null && consistency >= 12))
+        ? 'consistency' : 'scoring';
   const profile = avg !== null && first9Avg !== null && first9Avg >= avg + 6 && first9.length >= 3
     ? 'quickstarter'
     : checkoutRate !== null && checkoutRate >= 0.38 && checkout.length >= 3

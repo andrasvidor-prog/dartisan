@@ -35,7 +35,7 @@ function parseSnapshot(value: unknown): SafeSnapshot | null {
   if (!['tactics', 'broadcast', 'rival'].includes(String(input.mode)) || !['hu', 'en'].includes(String(input.lang))) return null;
   if (!input.dna || typeof input.dna !== 'object' || !Array.isArray(input.matches) || input.matches.length > 10) return null;
   const raw = input.dna as Record<string, unknown>;
-  const focus = ['doubles', 'opening', 'scoring'].includes(String(raw.focus)) ? String(raw.focus) : 'scoring';
+  const focus = ['doubles', 'opening', 'scoring', 'consistency'].includes(String(raw.focus)) ? String(raw.focus) : 'scoring';
   const profile = ['quickstarter', 'finisher', 'scorer', 'builder'].includes(String(raw.profile)) ? String(raw.profile) : 'builder';
   return {
     mode: input.mode as AiMode,
