@@ -22,8 +22,8 @@ Frissítve: 2026. november 14. Az összegek **becslések egy használatra**, USD
 | 3 | Taktikai dosszié | Konkrét erősségek, gyenge pontok és következő edzés | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
 | 4 | Meccsfilm | A valós statisztikákat sportközvetítés stílusában meséli el | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
 | 5 | Rivális hang | Személyre szabott, játékos meccselőzetes | Helyi szöveg: 0 $; élő AI: 0,0002–0,0006 $ | Helyi változat kész, élő AI kulcsra vár |
-| 6 | Fantomellenfél | A saját korábbi köreid ritmusa ellen játszol | 0 $ | Következő; körönkénti előzmény kell |
-| 7 | Fordulópont-visszajátszás | A meccs legfontosabb három döntését emeli ki | 0 $ vagy 0,0002–0,0005 $ szöveggel | Következő; eseménynapló kell |
+| 6 | Fantomellenfél | A saját korábbi köreid ritmusa ellen játszol | 0 $ | Kész a következő befejezett X01 meccstől; eltérő helyzetben a szokásos bot folytatja |
+| 7 | Fordulópont-visszajátszás | A meccs legfontosabb három körét emeli ki | 0 $ | Kész a következő befejezett X01 meccstől; helyi idővonal és kiemelések |
 | 8 | Kiszálló-útvonal térkép | Több lehetséges út és a választás kockázata | 0 $ | Következő |
 | 9 | Gyenge szektorok edzése | Saját célzási adatokból választ feladatot | 0 $ | Következő |
 | 10 | Személyes szintlépési cél | Egy elérhető heti cél valós múltbeli adatokból | 0 $ | Következő |

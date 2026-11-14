@@ -22,6 +22,7 @@ import { isSector, normalizeHeatmapData, type HeatmapData } from '../lib/heatmap
 import { applyHeatmapEvent, enqueueHeatmapEvent, flushHeatmapQueue, hunterHeatmapEvent, matchHeatmapEvent, reverseHeatmapEvent, type HeatmapEvent } from '../lib/heatmapSync';
 import type { MatchConfig } from './SetupScreen';
 import { AppFeedback, type AppFeedbackState } from './AppFeedback';
+import { orderedVisits, recordVisit, type MatchVisit } from '../lib/matchReplay';
 
 export type Dart = { val: number; mult: number; heatmapEvent?: HeatmapEvent };
 const SERVER_MATCH_ENABLED = process.env.NEXT_PUBLIC_SERVER_MATCH_ENABLED === 'true';
@@ -32,6 +33,7 @@ export type PlayerData = {
     score: number; setsWon: number; legsWon: number; totalPoints: number; totalDarts: number; 
     currentLegDarts: number; lastVisit: number | null; opened?: boolean;
     history: { score: number; dartsCount: number; points: number; roundDarts: Dart[]; openedBefore?: boolean }[];
+    visitLog: MatchVisit[];
     count100: number; count140: number; count180: number; highestCheckout: number; 
     bestLegDarts: number | null; checkoutAttempts: number; checkoutSuccess: number; 
     first9Points: number; first9Darts: number; legAverages: number[];
@@ -41,6 +43,7 @@ export type PlayerData = {
 const copyPlayers = (players: PlayerData[]): PlayerData[] => players.map(player => ({
     ...player,
     history: [...player.history],
+    visitLog: [...(player.visitLog || [])],
     legAverages: [...player.legAverages],
 }));
 
@@ -426,14 +429,14 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   
   const [players, setPlayers] = useState<PlayerData[]>(() => {
     if (config.resumeState) {
-        return config.resumeState.players.map((p) => ({ ...p, color: p.color || 'emerald', legAverages: p.legAverages || [] }));
+        return config.resumeState.players.map((p) => ({ ...p, color: p.color || 'emerald', legAverages: p.legAverages || [], visitLog: Array.isArray(p.visitLog) ? p.visitLog : [] }));
     }
     return config.players.map((p, i: number) => {
         const startingScore = p.customStartingScore ?? config.startingScore;
         return { 
             id: i, name: p.name, isBot: p.isBot, difficulty: p.difficulty, color: p.color || 'emerald', 
             score: startingScore, setsWon: 0, legsWon: 0, totalPoints: 0, totalDarts: 0, 
-            currentLegDarts: 0, lastVisit: null, opened: config.checkIn === 'single', history: [], count100: 0, count140: 0, count180: 0,
+            currentLegDarts: 0, lastVisit: null, opened: config.checkIn === 'single', history: [], visitLog: [], count100: 0, count140: 0, count180: 0,
             highestCheckout: 0, bestLegDarts: null, checkoutAttempts: 0, checkoutSuccess: 0, 
             first9Points: 0, first9Darts: 0, legAverages: [],
             teamId: p.teamId, customStartingScore: p.customStartingScore  
@@ -442,6 +445,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   });
   
   const [activePlayer, setActivePlayer] = useState<number>(config.resumeState ? config.resumeState.activePlayer : 0);
+  const [legNumber, setLegNumber] = useState(config.resumeState?.legNumber || 1);
   const [isLegWinner, setIsLegWinner] = useState(config.resumeState ? config.resumeState.isLegWinner : false);
   const [isSetWinner, setIsSetWinner] = useState(config.resumeState ? config.resumeState.isSetWinner : false);
   const [isMatchWinner, setIsMatchWinner] = useState(config.resumeState ? config.resumeState.isMatchWinner : false);
@@ -613,7 +617,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       return { val: Math.floor(Math.random() * 20) + 1, mult: 1 };
   }, []);
 
-  const handleFastEnterRef = useRef<((pts: number, fromBot: boolean) => void) | null>(null);
+  const handleFastEnterRef = useRef<((pts: number, fromBot: boolean, darts?: 1 | 2 | 3) => void) | null>(null);
   const processDartRef = useRef<((val: number, mult: number, fromBot: boolean) => void) | null>(null);
   const statsSavedRef = useRef(false);
   const matchIdRef = useRef<string>(config.resumeState?.matchId || crypto.randomUUID());
@@ -621,6 +625,20 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
   useEffect(() => {
     const currentPlayer = players[activePlayer];
     if (!currentPlayer?.isBot || isLegWinner || isSetWinner || isMatchWinner || practiceStatus !== 'playing' || asyncState !== 'playing' || showTutorial) return;
+
+    if (config.ghostReplay && currentDarts.length === 0) {
+      const sourceLegs = [...new Set(config.ghostReplay.visits.filter(visit => visit.playerId === 0).map(visit => visit.leg))];
+      const sourceLeg = sourceLegs[(legNumber - 1) % sourceLegs.length];
+      const sourceVisits = config.ghostReplay.visits.filter(visit => visit.playerId === 0 && visit.leg === sourceLeg);
+      const turnIndex = currentPlayer.visitLog.filter(visit => visit.leg === legNumber).length;
+      const source = sourceVisits[turnIndex];
+      if (source && source.scoreBefore === currentPlayer.score &&
+          canScoreInDarts(source.enteredPoints, source.darts as 1 | 2 | 3) &&
+          (!source.checkout || canCheckoutInDarts(source.enteredPoints, source.darts as 1 | 2 | 3, config.checkout))) {
+        const timer = setTimeout(() => handleFastEnterRef.current?.(source.enteredPoints, true, source.darts as 1 | 2 | 3), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
 
     if (inputMode === 'fast') {
         if (currentDarts.length === 0) {
@@ -654,7 +672,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             return () => clearTimeout(timer);
         }
     }
-  }, [activePlayer, currentDarts, inputMode, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, asyncState, showTutorial, getBotDart, config.checkout, players]);
+  }, [activePlayer, currentDarts, inputMode, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, asyncState, showTutorial, getBotDart, config.checkout, config.ghostReplay, players, legNumber]);
 
   const generateAiFeedback = (player: PlayerData) => {
       const avg = ((player.totalPoints / (player.totalDarts || 1)) * 3).toFixed(1);
@@ -715,6 +733,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     if (isMatchWinner || config.gameMode === 'practice' || (!isAsync && !hasMatchProgress)) localStorage.removeItem('dartisan_save');
     else localStorage.setItem('dartisan_save', JSON.stringify({
             players, activePlayer, isLegWinner, isSetWinner, isMatchWinner,
+            legNumber,
             config: { ...config, resumeState: undefined }, currentDarts,
             inputMode, checkoutStrategy, asyncState, aimTarget, heatmapSession: fullHeatmapData,
             matchId: matchIdRef.current,
@@ -723,7 +742,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             resolvedLegNumber: isAsync ? resolvedLegRef.current : undefined,
             pendingOnlineDarts: isAsync ? pendingOnlineDarts ?? undefined : undefined,
         }));
-  }, [players, activePlayer, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData, aimTarget, fullHeatmapData, pendingOnlineDarts]);
+  }, [players, activePlayer, legNumber, isLegWinner, isSetWinner, isMatchWinner, currentDarts, config, isAsync, hasMatchProgress, inputMode, checkoutStrategy, asyncState, fbSyncData, aimTarget, fullHeatmapData, pendingOnlineDarts]);
 
   useEffect(() => {
       if (isMatchWinner && config.gameMode !== 'practice' && players.length > 1 && !statsSavedRef.current) {
@@ -803,6 +822,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                       opponent: players.slice(1).map(player => player.name).join(', ') || 'Unknown',
                       won: isWin,
                       score: `${p.setsWon} - ${Math.max(0, ...players.slice(1).map(player => player.setsWon))}`,
+                      startingScore: p.customStartingScore ?? config.startingScore,
+                      checkIn: config.checkIn,
+                      checkout: config.checkout,
+                      players: players.map(player => player.name),
+                      visits: orderedVisits(players).slice(-500),
                       stats: {
                           average: ((p.totalPoints / (p.totalDarts || 1)) * 3),
                           first9Average: ((p.first9Points / (p.first9Darts || 1)) * 3),
@@ -870,6 +894,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                   resolvedLegRef.current = state.resolvedLeg?.number || 0;
                   const legAdvanced = state.currentLeg > (config.resumeState?.onlineLeg || 1);
                   if (legAdvanced) {
+                      setLegNumber(state.currentLeg);
                       setPlayers(prev => prev.map(player => ({ ...player,
                           score: player.customStartingScore ?? config.startingScore,
                           currentLegDarts: 0, opened: config.checkIn === 'single', history: [], lastVisit: null,
@@ -1019,7 +1044,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       recordHeatmapLocal(reverseHeatmapEvent(event));
   };
 
-  const handleWin = useCallback((playerIndex: number, checkoutValue: number, winningDartsInRound: number) => {
+  const handleWin = useCallback((playerIndex: number, checkoutValue: number, winningDartsInRound: number, winningDarts: Dart[] = []) => {
     const pColor = players[playerIndex].color; 
     announceScore(txt.checkoutMsg(checkoutValue), false, false, true);
     const willWinLeg = players[playerIndex].legsWon + 1 >= config.legsToWin;
@@ -1031,6 +1056,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
     setPlayers(prev => {
       const np = copyPlayers(prev);
       const activeP = np[playerIndex];
+      recordVisit(np, playerIndex, { leg: legNumber, scoreBefore: activeP.score,
+        points: checkoutValue, enteredPoints: checkoutValue, darts: winningDartsInRound,
+        bust: false, checkout: true, hits: winningDarts.map(dart => ({ val: dart.val, mult: dart.mult })) });
       
       const legDarts = activeP.currentLegDarts + winningDartsInRound;
       const startingPScore = activeP.customStartingScore ?? config.startingScore;
@@ -1065,7 +1093,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       syncTeamState(np, playerIndex);
       return np;
     });
-  }, [config, players, announceScore, triggerCelebration, txt]);
+  }, [config, players, announceScore, triggerCelebration, txt, legNumber]);
 
   const processDart = useCallback((val: number, mult: number, fromBot = false) => {
     if (isLegWinner || isSetWinner || isMatchWinner || practiceStatus === 'lost' || practiceStatus === 'won' || practiceStatus === 'won_121_round' || showTutorial || currentDarts.length >= 3 || asyncState !== 'playing') return;
@@ -1187,6 +1215,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             setPlayers(prev => { 
                 const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
+                recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+                    points: validPts, enteredPoints: allDarts.reduce((sum, dart) => sum + dart.val * dart.mult, 0),
+                    darts: allDarts.length, bust: false, checkout: true,
+                    hits: allDarts.map(dart => ({ val: dart.val, mult: dart.mult })) });
                 const legDarts = pl.currentLegDarts + allDarts.length;
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
@@ -1202,7 +1234,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             }); 
             finishAsyncLeg(activeP.currentLegDarts + allDarts.length); 
         } else {
-            handleWin(activePlayer, validPts, currentDarts.length + 1); 
+            handleWin(activePlayer, validPts, currentDarts.length + 1, allDarts);
         }
         return; 
     }
@@ -1213,6 +1245,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       setPlayers(prev => { 
           const np = copyPlayers(prev);
           const pl = np[activePlayer]; 
+          recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+              points: 0, enteredPoints: allDarts.reduce((sum, dart) => sum + dart.val * dart.mult, 0),
+              darts: allDarts.length, bust: true, checkout: false,
+              hits: allDarts.map(dart => ({ val: dart.val, mult: dart.mult })) });
           pl.history.push({ score: pl.score, dartsCount: allDarts.length, points: 0, roundDarts: allDarts, openedBefore: pl.opened });
           pl.totalDarts += allDarts.length; pl.currentLegDarts += allDarts.length; pl.lastVisit = 0; pl.opened = visit.opened;
           
@@ -1228,7 +1264,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         if (validPts === 180) announceScore('', true, false); 
         else announceScore(validPts.toString()); 
     }
-  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt, aimTarget, recordHeatmapLocal, finishAsyncLeg, isAsync, triggerCelebration]);
+  }, [activePlayer, config, currentDarts, handleWin, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, practiceTarget, showTutorial, asyncState, nextPlayerIdx, players, announceScore, c121DartsLeft, c121Target, c121Record, txt, aimTarget, recordHeatmapLocal, finishAsyncLeg, isAsync, triggerCelebration, legNumber]);
 
   const handleDartPress = (val: number, overrideMult?: number) => { 
       triggerHaptic('tap');
@@ -1281,9 +1317,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
            const np = copyPlayers(prev);
            const pl = np[activePlayer]; 
            const dartsBeforeBust = pl.currentLegDarts;
-           pl.history.push({ score: pl.score, dartsCount: 3, points: 0, roundDarts: [] }); 
-           pl.totalDarts += 3; pl.currentLegDarts += 3; pl.lastVisit = 0; 
-           if (dartsBeforeBust < 9) pl.first9Darts += Math.min(3, 9 - dartsBeforeBust);
+           recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+             points: 0, enteredPoints: pts, darts: usedDarts, bust: true, checkout: false, hits: [] });
+           pl.history.push({ score: pl.score, dartsCount: usedDarts, points: 0, roundDarts: [] });
+           pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.lastVisit = 0;
+           if (dartsBeforeBust < 9) pl.first9Darts += Math.min(usedDarts, 9 - dartsBeforeBust);
            
            syncTeamState(np, activePlayer);
            return np; 
@@ -1297,6 +1335,8 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
             setPlayers(prev => { 
                 const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
+                recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+                  points: pts, enteredPoints: pts, darts: usedDarts, bust: false, checkout: true, hits: [] });
                 const legDarts = pl.currentLegDarts + usedDarts;
                 const startingPScore = pl.customStartingScore ?? config.startingScore;
                 const thisLegAvg = legDarts > 0 ? (startingPScore / legDarts) * 3 : 0;
@@ -1319,9 +1359,11 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         setPlayers(prev => { 
             const np = copyPlayers(prev);
             const pl = np[activePlayer]; 
+            recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+              points: pts, enteredPoints: pts, darts: usedDarts, bust: false, checkout: false, hits: [] });
             pl.score = tScore; 
-            pl.history.push({ score: pl.score + pts, dartsCount: 3, points: pts, roundDarts: [] }); 
-            pl.totalPoints += pts; pl.totalDarts += 3; pl.currentLegDarts += 3; pl.lastVisit = pts; 
+            pl.history.push({ score: pl.score + pts, dartsCount: usedDarts, points: pts, roundDarts: [] });
+            pl.totalPoints += pts; pl.totalDarts += usedDarts; pl.currentLegDarts += usedDarts; pl.lastVisit = pts;
             updateRoundStats(pl, pts); 
             
             syncTeamState(np, activePlayer);
@@ -1330,9 +1372,9 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         setActivePlayer(nextPlayerIdx()); 
     }  
     setInput('');
-  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore]);
+  }, [input, isLegWinner, isSetWinner, isMatchWinner, config.gameMode, config.checkout, asyncState, players, activePlayer, txt, nextPlayerIdx, handleWin, announceScore, legNumber, isAsync]);
 
-  useEffect(() => { handleFastEnterRef.current = (pts, fromBot) => handleFastEnter(pts, undefined, false, fromBot); }, [handleFastEnter]);
+  useEffect(() => { handleFastEnterRef.current = (pts, fromBot, darts) => handleFastEnter(pts, darts, false, fromBot); }, [handleFastEnter]);
   useEffect(() => { processDartRef.current = (val, mult, fromBot) => processDart(val, mult, fromBot); }, [processDart]);
 
   useEffect(() => {
@@ -1358,6 +1400,10 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
                 const np = copyPlayers(prev);
                 const pl = np[activePlayer]; 
                 const openedBefore = pl.opened;
+                recordVisit(np, activePlayer, { leg: legNumber, scoreBefore: pl.score,
+                  points: v, enteredPoints: currentDarts.reduce((sum, dart) => sum + dart.val * dart.mult, 0),
+                  darts: 3, bust: false, checkout: false,
+                  hits: currentDarts.map(dart => ({ val: dart.val, mult: dart.mult })) });
                 pl.score -= v; pl.opened = visit.opened;
                 pl.history.push({ score: pl.score + v, dartsCount: 3, points: v, roundDarts: currentDarts, openedBefore });
                 pl.totalPoints += v; pl.totalDarts += 3; pl.currentLegDarts += 3; pl.lastVisit = v; 
@@ -1371,7 +1417,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
       }, 600); 
       return () => clearTimeout(timer);
     }
-  }, [currentDarts, activePlayer, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, bobsScore, bobsRoundScore, practiceTarget, nextPlayerIdx, config, players]);
+  }, [currentDarts, activePlayer, isLegWinner, isSetWinner, isMatchWinner, practiceStatus, bobsScore, bobsRoundScore, practiceTarget, nextPlayerIdx, config, players, legNumber]);
 
   const handleHunterHit = (hits: number) => {
       if (practiceStatus !== 'playing' || !Number.isInteger(hits) || hits < 0 || hits > 3) return;
@@ -1428,7 +1474,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
         else if (lh.points >= 100) pl.count100 = Math.max(0, pl.count100 - 1);
         np[prevPlayerIdx] = { 
             ...pl, score: lh.score, opened: lh.openedBefore ?? (config.checkIn === 'single' || lh.score < (pl.customStartingScore ?? config.startingScore)), totalPoints: pl.totalPoints - lh.points, totalDarts: pl.totalDarts - lh.dartsCount,
-            currentLegDarts: pl.currentLegDarts - lh.dartsCount, history: pl.history.slice(0, -1), lastVisit: pl.history.length > 1 ? pl.history[pl.history.length - 2].points : null 
+            currentLegDarts: pl.currentLegDarts - lh.dartsCount, history: pl.history.slice(0, -1), visitLog: pl.visitLog.slice(0, -1), lastVisit: pl.history.length > 1 ? pl.history[pl.history.length - 2].points : null
         };
         
         syncTeamState(np, prevPlayerIdx);
@@ -1453,6 +1499,7 @@ export function MatchScreen({ config, onBackToSetup, onMatchComplete, onRematch,
           history: [], 
           lastVisit: null 
       }))); 
+      setLegNumber(prev => prev + 1);
       setCurrentDarts([]); setIsLegWinner(false); setIsSetWinner(false); setAsyncState('playing');
       const tp = players.reduce((sum, pl) => sum + pl.legsWon + (pl.setsWon * config.legsToWin), 0); 
       if (!isAsync) setActivePlayer(tp % players.length);

@@ -7,7 +7,9 @@ import type { User } from 'firebase/auth';
 import { db } from '../firebase';
 import { buildDartsDna, type DnaAim, type DnaMatch } from '../lib/dartsDna';
 import { createLocalNarrative } from '../lib/localCoach';
+import { readMatchVisits } from '../lib/matchReplay';
 import { AiCoach } from './AiCoach';
+import { MatchTimeMachine, type ReplayMatch } from './MatchTimeMachine';
 import type { MatchConfig } from './SetupScreen';
 import type { Language } from '@/app/page';
 
@@ -94,6 +96,7 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
   const t = words[lang];
   const [tab, setTab] = useState<StudioTab>('dna');
   const [matches, setMatches] = useState<DnaMatch[]>([]);
+  const [replay, setReplay] = useState<ReplayMatch | null>(null);
   const [aims, setAims] = useState<DnaAim[]>([]);
   const [loadedUid, setLoadedUid] = useState<string | null>(null);
   const [failedUid, setFailedUid] = useState<string | null>(null);
@@ -117,6 +120,20 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
       getDocs(collection(db, 'users', user.uid, 'stats', 'aims', 'targets')),
     ]).then(([history, targets]) => {
       if (!alive) return;
+      const replayItem = history.docs.map(item => {
+        const data = item.data();
+        const visits = readMatchVisits(data.visits);
+        const names = data.players;
+        if (data.mode !== 'x01' || ![301, 501, 701, 1001].includes(data.startingScore) ||
+            !Array.isArray(names) || names.length !== 2 || !names.every(name => typeof name === 'string') ||
+            visits.length === 0 || !visits.some(visit => visit.playerId === 0)) return null;
+        return { id: item.id, visits, startingScore: data.startingScore,
+          playerNames: [names[0], names[1]] as [string, string],
+          checkIn: data.checkIn === 'double' || data.checkIn === 'master' ? data.checkIn : 'single',
+          checkout: data.checkout === 'single' || data.checkout === 'master' ? data.checkout : 'double',
+        } satisfies ReplayMatch;
+      }).find(Boolean);
+      setReplay(replayItem || null);
       setMatches(history.docs.map(item => {
         const data = item.data();
         const stats = data.stats || {};
@@ -138,6 +155,18 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
     }).catch(() => { if (alive) setFailedUid(user.uid); });
     return () => { alive = false; };
   }, [signedUser]);
+
+  const startGhost = (source: ReplayMatch) => {
+    onStartDrill({
+      gameMode: 'x01', startingScore: source.startingScore, setsToWin: 1, legsToWin: 3,
+      checkIn: source.checkIn, checkout: source.checkout, muteCaller: false,
+      players: [
+        { name: signedUser?.displayName || (lang === 'hu' ? 'Játékos' : 'Player'), isBot: false, difficulty: 5, color: 'cyan' },
+        { name: lang === 'hu' ? 'Fantom-én' : 'Ghost me', isBot: true, difficulty: 5, color: 'purple' },
+      ],
+      ghostReplay: { sourceMatchId: source.id, visits: source.visits },
+    });
+  };
 
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
@@ -253,6 +282,8 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
             </button>)}
         </div>
       </section>
+
+      <MatchTimeMachine lang={lang} replay={ready ? replay : null} onStartGhost={startGhost} loading={loading} signedOut={!signedUser} />
 
       <section className="rounded-3xl border border-[#b655ff]/25 bg-[#12141a] p-5 sm:p-7">
         <div className="flex items-center gap-2"><SparklesIcon className="h-5 w-5 text-[#b655ff]" /><h2 className="text-xl sm:text-2xl font-black text-white uppercase italic">{t.aiTitle}</h2></div>

@@ -20,6 +20,7 @@ import { TRAINING_MODES } from '../lib/training';
 import { bullOffWinner, isMatchPreset, readMatchPresets, writeMatchPresets, type BullOffHit, type MatchPreset } from '../lib/matchPresets';
 import { flushHeatmapQueue } from '../lib/heatmapSync';
 import type { HeatmapData } from '../lib/heatmap';
+import type { MatchVisit } from '../lib/matchReplay';
 import { AppFeedback, type AppFeedbackState } from './AppFeedback';
 
 export type PlayerColor = 'emerald' | 'rose' | 'cyan' | 'amber' | 'purple';
@@ -43,6 +44,7 @@ export type SavedMatch = {
     onlineLeg?: number;
     pendingOnlineDarts?: number;
     resolvedLegNumber?: number;
+    legNumber?: number;
 };
 export type PlayerConfig = { 
     name: string; 
@@ -74,6 +76,7 @@ export type MatchConfig = {
     isCustomTournamentMatch?: boolean;
     isGroupMatch?: boolean;
     dartSetupId?: string;
+    ghostReplay?: { visits: MatchVisit[]; sourceMatchId: string };
 };
 
 const CAREER_BOTS = [
