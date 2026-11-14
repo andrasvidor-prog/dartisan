@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { legBreakAdvice, scoutOpponents, whatIfRoute, winRecipe } from '../lib/matchIntelligence.ts';
+import { legBreakAdvice, readScoutMatch, scoutOpponents, whatIfRoute, winRecipe } from '../lib/matchIntelligence.ts';
 import { evaluateVisit } from '../lib/x01.ts';
 
 const visit = (order, playerId, scoreBefore, points, overrides = {}) => ({
@@ -42,6 +42,17 @@ test('scout groups repeat opponents, excludes unknown names and only counts oppo
   assert.equal(scout.average, 60);
   assert.equal(scout.highVisits, 1);
   assert.equal(scout.busts, 1);
+});
+
+test('old match records still supply an opponent record without a visit log', () => {
+  const old = readScoutMatch({ mode: 'x01', opponent: 'Régi rivális', won: true });
+  assert.deepEqual(old, { opponent: 'Régi rivális', won: true, visits: [] });
+  assert.deepEqual(scoutOpponents([old])[0], {
+    name: 'Régi rivális', matches: 1, wins: 1, recordedVisits: 0,
+    average: null, highVisits: 0, busts: 0, checkouts: 0,
+  });
+  assert.equal(readScoutMatch({ mode: 'practice', opponent: 'Régi rivális' }), null);
+  assert.equal(readScoutMatch({ mode: 'x01', opponent: 'Unknown' }), null);
 });
 
 test('winning recipe compares only X01 outcomes and leaves absent metrics out', () => {

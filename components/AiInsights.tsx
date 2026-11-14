@@ -36,7 +36,8 @@ export function AiInsights({ lang, matches, scoutMatches, loading, signedOut, lo
       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">DARTS DNA / 06</span>
       <h2 className="mt-1 flex items-center gap-2 text-xl font-black uppercase italic text-white sm:text-2xl"><EyeIcon className="h-6 w-6 shrink-0 text-cyan-300" />{hu ? 'Ellenfél-felderítő' : 'Opponent scout'}</h2>
       <p className="mt-2 text-xs leading-relaxed text-slate-400 sm:text-sm">{hu ? 'Az ismétlődő ellenfelek meccsei és a ténylegesen naplózott köreik alapján.' : 'Based on repeated opponents and their actually recorded visits.'}</p>
-      {!selected ? <p className="mt-5 rounded-xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-300">{empty}</p> : <>
+      {!selected ? <p className="mt-5 rounded-xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-300">{matches.some(match => match.mode === 'x01') && !loading && !loadError
+        ? (hu ? 'A korábbi X01 meccsekhez nem mentődött használható ellenfélnév. A következő névvel rögzített meccs itt is megjelenik.' : 'Earlier X01 matches have no usable opponent name. The next match with a named opponent will appear here.') : empty}</p> : <>
         <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label={hu ? 'Ellenfél kiválasztása' : 'Select opponent'}>
           {scouts.map(scout => <button type="button" key={scout.name} onClick={() => setSelectedName(scout.name)} aria-pressed={selected.name === scout.name} className={`min-h-11 max-w-full truncate rounded-xl border px-4 text-xs font-black ${selected.name === scout.name ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 bg-slate-950/50 text-slate-300'}`}>{scout.name}</button>)}
         </div>

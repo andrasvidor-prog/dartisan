@@ -1,5 +1,5 @@
 import { checkoutRoutes, type Route } from './checkoutRoutes.ts';
-import { visitRemaining, type MatchVisit } from './matchReplay.ts';
+import { readMatchVisits, visitRemaining, type MatchVisit } from './matchReplay.ts';
 import type { CheckoutRule } from './x01.ts';
 import type { DatedDnaMatch } from './weeklyGoal.ts';
 
@@ -50,6 +50,15 @@ export type ScoutMatch = {
   won: boolean;
   visits: MatchVisit[];
 };
+
+export function readScoutMatch(data: Record<string, unknown>): ScoutMatch | null {
+  if (data.mode !== 'x01') return null;
+  const players = data.players;
+  const opponent = Array.isArray(players) && players.length === 2 && typeof players[1] === 'string'
+    ? players[1] : typeof data.opponent === 'string' ? data.opponent : '';
+  if (!opponent.trim() || opponent.trim().toLowerCase() === 'unknown') return null;
+  return { opponent, won: data.won === true, visits: readMatchVisits(data.visits) };
+}
 
 export type OpponentScout = {
   name: string;

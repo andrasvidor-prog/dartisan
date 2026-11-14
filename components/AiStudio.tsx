@@ -13,7 +13,7 @@ import { AiCoach } from './AiCoach';
 import { MatchTimeMachine, type ReplayMatch } from './MatchTimeMachine';
 import { AiPracticeLab } from './AiPracticeLab';
 import { AiInsights } from './AiInsights';
-import type { ScoutMatch } from '../lib/matchIntelligence';
+import { readScoutMatch, type ScoutMatch } from '../lib/matchIntelligence';
 import type { MatchConfig } from './SetupScreen';
 import type { Language } from '@/app/page';
 
@@ -140,11 +140,8 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
       }).find(Boolean);
       setReplay(replayItem || null);
       setScoutMatches(history.docs.flatMap(item => {
-        const data = item.data();
-        if (data.mode !== 'x01' || !Array.isArray(data.players) || data.players.length !== 2 ||
-            typeof data.players[1] !== 'string') return [];
-        return [{ opponent: data.players[1], won: data.won === true,
-          visits: readMatchVisits(data.visits) }];
+        const match = readScoutMatch(item.data());
+        return match ? [match] : [];
       }));
       setMatches(history.docs.map(item => {
         const data = item.data();
