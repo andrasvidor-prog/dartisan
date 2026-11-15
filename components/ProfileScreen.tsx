@@ -10,10 +10,11 @@ import {
 import { db, auth, googleProvider } from '../firebase';
 import { EmailAuthProvider, reauthenticateWithPopup, reload, sendPasswordResetEmail, signOut, updatePassword } from 'firebase/auth';
 import {
-    doc, onSnapshot, collection, getDocs, query, limit, Timestamp,
-    updateDoc, arrayUnion, orderBy, getDoc, setDoc
+    doc, onSnapshot, collection, getDocs, getCountFromServer, query, limit, Timestamp,
+    updateDoc, arrayUnion, orderBy, getDoc, setDoc, where
 } from 'firebase/firestore';
 import { matchHistoryCsv, matchTrend, recordedMatchScore, type MatchAnalyticsRow } from '../lib/matchAnalytics';
+import { profileMatchTotals } from '../lib/profileMatchTotals';
 import { HeatmapBoard, HeatmapLegend, heatmapColor } from './HeatmapBoard';
 import { mergeAimStats, mergeHeatmaps, normalizeAimStat, normalizeHeatmapData, sectorHits, sectorType, type AimStat, type HeatmapData, type HeatmapFilter, type HeatmapSource } from '../lib/heatmap';
 import { AppFeedback, type AppFeedbackState } from './AppFeedback';
@@ -113,6 +114,8 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
     const [isViewingOther, setIsViewingOther] = useState(false);
 
     const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
+    const [matchHistoryLoaded, setMatchHistoryLoaded] = useState(false);
+    const [recordedMatchTotals, setRecordedMatchTotals] = useState<{ matches: number; wins: number } | null>(null);
     const [legacyHeatmaps, setLegacyHeatmaps] = useState<{ setupId: string; data: HeatmapData }[]>([]);
     const [landingHeatmaps, setLandingHeatmaps] = useState<{ setupId: string; source: HeatmapSource; data: HeatmapData }[]>([]);
     const [aimStats, setAimStats] = useState<AimStat[]>([]);
@@ -216,8 +219,17 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
     useEffect(() => {
         const user = auth.currentUser;
         if (!user) return;
-        const q = query(collection(db, 'users', user.uid, 'matchHistory'), orderBy('date', 'desc'), limit(20));
-        getDocs(q).then(snap => setMatchHistory(snap.docs.map(d => ({ ...d.data(), id: d.id }) as MatchHistory))).catch(error => console.error('Match history could not be loaded:', error));
+        const historyRef = collection(db, 'users', user.uid, 'matchHistory');
+        const q = query(historyRef, orderBy('date', 'desc'), limit(20));
+        getDocs(q).then(snap => {
+            setMatchHistory(snap.docs.map(d => ({ ...d.data(), id: d.id }) as MatchHistory));
+            setMatchHistoryLoaded(true);
+        }).catch(error => console.error('Match history could not be loaded:', error));
+        Promise.all([
+            getCountFromServer(historyRef),
+            getCountFromServer(query(historyRef, where('won', '==', true))),
+        ]).then(([all, wins]) => setRecordedMatchTotals({ matches: all.data().count, wins: wins.data().count }))
+          .catch(error => console.error('Match totals could not be loaded:', error));
     }, []);
 
     // ── Load preference settings ──────────────────────────────────────────────
@@ -369,9 +381,13 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
     const coPct = stats && stats.checkoutAttempts > 0
         ? Math.min(100, Math.max(0, Math.round((stats.checkoutSuccess / stats.checkoutAttempts) * 100)))
         : 0;
-    const winRate = stats && stats.matchesPlayed > 0
-        ? Math.min(100, Math.max(0, Math.round((stats.matchesWon / stats.matchesPlayed) * 100)))
-        : 0;
+    const ownProfile = !!stats && stats.id === auth.currentUser?.uid;
+    const knownHistoryTotals = ownProfile
+        ? recordedMatchTotals ?? (matchHistoryLoaded && matchHistory.length < 20
+            ? { matches: matchHistory.length, wins: matchHistory.filter(match => match.won === true).length }
+            : null)
+        : null;
+    const matchTotals = stats ? profileMatchTotals(stats, knownHistoryTotals) : { matches: 0, wins: 0, winRate: 0 };
 
     const getAvatar = (d: ProfileStats | null) =>
         d?.selectedAvatar || d?.photoURL ||
@@ -379,14 +395,14 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
 
     // ── Achievements ──────────────────────────────────────────────────────────
     const achievements = stats ? [
-        { name: tr('Első győzelem', 'First win'), desc: tr('Nyertél egy meccset', 'Win one match'), unlocked: stats.matchesWon > 0, color: 'purple', icon: <TrophyIcon className="h-7 w-7" /> },
+        { name: tr('Első győzelem', 'First win'), desc: tr('Nyertél egy meccset', 'Win one match'), unlocked: matchTotals.wins > 0, color: 'purple', icon: <TrophyIcon className="h-7 w-7" /> },
         { name: tr('Száznyolcvan!', 'One eighty!'), desc: tr('Dobtál egy 180-at', 'Throw a 180'), unlocked: stats.count180 > 0, color: 'rose', icon: <FireIcon className="h-7 w-7" /> },
         { name: tr('Mesterlövész', 'Sharpshooter'), desc: tr('100+ kiszálló', 'Checkout of 100+'), unlocked: stats.highestCheckout >= 100, color: 'cyan', icon: <StarIcon className="h-7 w-7" /> },
         { name: tr('Kiszállókirály', 'Checkout king'), desc: tr('170-es kiszálló', '170 checkout'), unlocked: stats.highestCheckout >= 170, color: 'purple', icon: <TrophyIcon className="h-7 w-7" /> },
         { name: tr('Gépágyú', 'Rapid fire'), desc: tr('10 db 180-at dobtál', 'Throw 10 scores of 180'), unlocked: stats.count180 >= 10, color: 'rose', icon: <FireIcon className="h-7 w-7" /> },
         { name: tr('180-as mágus', '180 wizard'), desc: tr('50 db 180-at dobtál', 'Throw 50 scores of 180'), unlocked: stats.count180 >= 50, color: 'rose', icon: <BoltIcon className="h-7 w-7" /> },
-        { name: tr('Veterán', 'Veteran'), desc: tr('50 meccset játszottál', 'Play 50 matches'), unlocked: (stats.matchesPlayed || 0) >= 50, color: 'emerald', icon: <ChartBarIcon className="h-7 w-7" /> },
-        { name: tr('Százas klub', 'Century club'), desc: tr('100 meccset játszottál', 'Play 100 matches'), unlocked: (stats.matchesPlayed || 0) >= 100, color: 'indigo', icon: <ChartBarIcon className="h-7 w-7" /> },
+        { name: tr('Veterán', 'Veteran'), desc: tr('50 meccset játszottál', 'Play 50 matches'), unlocked: matchTotals.matches >= 50, color: 'emerald', icon: <ChartBarIcon className="h-7 w-7" /> },
+        { name: tr('Százas klub', 'Century club'), desc: tr('100 meccset játszottál', 'Play 100 matches'), unlocked: matchTotals.matches >= 100, color: 'indigo', icon: <ChartBarIcon className="h-7 w-7" /> },
         { name: tr('Streakmester', 'Streak master'), desc: tr('7 napos bejelentkezési sorozat', 'Sign in 7 days in a row'), unlocked: (stats.streak || 0) >= 7, color: 'purple', icon: <CalendarDaysIcon className="h-7 w-7" /> },
         { name: tr('Profi', 'Pro'), desc: tr('60+ átlag', 'Average of 60+'), unlocked: stats.totalDarts > 0 && ((stats.totalPoints / stats.totalDarts) * 3) >= 60, color: 'purple', icon: <StarIcon className="h-7 w-7" /> },
         { name: tr('Kiszállószakértő', 'Checkout expert'), desc: tr('40%+ kiszálló arány (min. 20 kísérlet)', '40%+ checkout rate (at least 20 attempts)'), unlocked: stats.checkoutAttempts >= 20 && (stats.checkoutSuccess / stats.checkoutAttempts) >= 0.4, color: 'cyan', icon: <CheckCircleIcon className="h-7 w-7" /> },
@@ -563,9 +579,9 @@ export default function ProfileScreen({ onBack, lang }: { onBack: () => void; la
                             {/* Stats grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 {[
-                                    { label: tr('Meccsek', 'Matches'), value: stats.matchesPlayed || 0, color: 'text-white' },
-                                    { label: tr('Győzelmek', 'Wins'), value: `${stats.matchesWon || 0}`, color: 'text-emerald-400' },
-                                    { label: 'Win rate',   value: `${winRate}%`,                                    color: 'text-emerald-400' },
+                                    { label: tr('Meccsek', 'Matches'), value: matchTotals.matches, color: 'text-white' },
+                                    { label: tr('Győzelmek', 'Wins'), value: `${matchTotals.wins}`, color: 'text-emerald-400' },
+                                    { label: 'Win rate',   value: `${matchTotals.winRate}%`, color: 'text-emerald-400' },
                                     { label: tr('Átlag', 'Average'), value: avg, color: 'text-cyan-400' },
                                     { label: tr('Első 9 átl.', 'First 9 avg'), value: f9avg, color: 'text-[#b655ff]' },
                                     { label: tr('Kiszálló%', 'Checkout %'), value: `${coPct}%`, color: 'text-cyan-400' },

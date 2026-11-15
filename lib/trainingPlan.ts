@@ -11,7 +11,7 @@ const BASE_WEEKS: TrainingMode[][] = [
   ['countup', 'random_doubles', 'treble100', 'pressure60', 'ladder121'],
 ];
 
-export function suggestedPlanFocus(records: PlanRecord[]): PlanFocus {
+export function suggestedPlanFocus(records: PlanRecord[], fallback: PlanFocus = 'balanced'): PlanFocus {
   const groups: { focus: PlanFocus; modes: TrainingMode[] }[] = [
     { focus: 'doubles', modes: ['double_ladder', 'random_doubles'] },
     { focus: 'scoring', modes: ['treble100', 'switch30'] },
@@ -22,13 +22,13 @@ export function suggestedPlanFocus(records: PlanRecord[]): PlanFocus {
     const darts = recent.reduce((sum, record) => sum + record.darts, 0);
     return { focus: group.focus, rate: darts ? recent.reduce((sum, record) => sum + record.hits, 0) / darts : null };
   }).filter((item): item is { focus: PlanFocus; rate: number } => item.rate !== null);
-  if (!observed.length) return 'balanced';
+  if (!observed.length) return fallback;
   observed.sort((a, b) => a.rate - b.rate);
   return observed[0].focus;
 }
 
-export function createTrainingPlan(records: PlanRecord[], now = new Date(), id = crypto.randomUUID()): TrainingPlan {
-  const focus = suggestedPlanFocus(records);
+export function createTrainingPlan(records: PlanRecord[], now = new Date(), id = crypto.randomUUID(), fallback: PlanFocus = 'balanced'): TrainingPlan {
+  const focus = suggestedPlanFocus(records, fallback);
   const days = BASE_WEEKS.map((week, index) => {
     const assigned = [...week];
     if (focus === 'doubles') {
@@ -44,6 +44,18 @@ export function createTrainingPlan(records: PlanRecord[], now = new Date(), id =
     return assigned;
   }).flat();
   return { id, createdAt: now.toISOString(), focus, days };
+}
+
+export function replanTrainingPlan(plan: TrainingPlan, records: PlanRecord[]): TrainingPlan {
+  const own = records.filter(record => record.planId === plan.id && Number.isInteger(record.planDay) && record.planDay! >= 0 && record.planDay! < 20);
+  if (own.length < 3) return plan;
+  const latestStartedWeek = Math.max(...own.map(record => Math.floor(record.planDay! / 5)));
+  const firstFutureDay = (latestStartedWeek + 1) * 5;
+  if (firstFutureDay >= 20) return plan;
+  const focus = suggestedPlanFocus(own, plan.focus);
+  if (focus === plan.focus) return plan;
+  const proposal = createTrainingPlan(own, new Date(plan.createdAt), plan.id, focus);
+  return { ...plan, focus, days: [...plan.days.slice(0, firstFutureDay), ...proposal.days.slice(firstFutureDay)] };
 }
 
 export function isTrainingPlan(value: unknown): value is TrainingPlan {

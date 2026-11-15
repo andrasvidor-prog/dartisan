@@ -5,7 +5,7 @@ import { ArrowLeftIcon, ArrowPathIcon, ArrowUturnLeftIcon, ChartBarIcon, PlayIco
 import type { Language } from '@/app/page';
 import type { Dart } from '@/lib/x01';
 import { createTrainingSession, evaluateTraining, isTrainingSession, TRAINING_MODES, trainingTimeLimit, type TrainingMode, type TrainingSession } from '@/lib/training';
-import { completedPlanDays, createTrainingPlan, isTrainingPlan, suggestedPlanFocus, type TrainingPlan } from '@/lib/trainingPlan';
+import { completedPlanDays, createTrainingPlan, isTrainingPlan, replanTrainingPlan, suggestedPlanFocus, type PlanFocus, type TrainingPlan } from '@/lib/trainingPlan';
 
 type TrainingRecord = { id: string; mode: TrainingMode; score: number; hits: number; darts: number; completed: boolean; date: string; planId?: string; planDay?: number };
 
@@ -71,7 +71,7 @@ function formatDart(dart: Dart): string {
   return `${dart.mult === 1 ? 'S' : dart.mult === 2 ? 'D' : 'T'}${dart.val}`;
 }
 
-export function TrainingLab({ lang, onBack }: { lang: Language; onBack: () => void }) {
+export function TrainingLab({ lang, onBack, profileFocus }: { lang: Language; onBack: () => void; profileFocus?: PlanFocus }) {
   const [session, setSession] = useState<TrainingSession | null>(readSession);
   const [records, setRecords] = useState<TrainingRecord[]>(readRecords);
   const [plan, setPlan] = useState<TrainingPlan | null>(readPlan);
@@ -153,7 +153,8 @@ export function TrainingLab({ lang, onBack }: { lang: Language; onBack: () => vo
   const modeCount = TRAINING_MODES.length;
   const personalBest = modeRecords.length ? Math.max(...modeRecords.map(r => bestByHits ? r.hits : r.score)) : null;
   const planCompleted = plan ? completedPlanDays(plan, records) : new Set<number>();
-  const suggestedFocus = suggestedPlanFocus(records);
+  const suggestedFocus = suggestedPlanFocus(records, profileFocus);
+  const revisedPlan = plan ? replanTrainingPlan(plan, records) : null;
 
   return (
     <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 pt-[calc(1rem+var(--app-safe-top))] pb-16">
@@ -180,13 +181,15 @@ export function TrainingLab({ lang, onBack }: { lang: Language; onBack: () => vo
                   <h2 className="text-xl sm:text-2xl font-black uppercase text-white mt-1">{isHu ? 'Személyre szabott edzésterv' : 'Personal training plan'}</h2>
                   <p className="text-xs text-slate-300 mt-2 max-w-2xl">{plan
                     ? `${isHu ? 'Fókusz' : 'Focus'}: ${isHu ? FOCUS_LABEL[plan.focus].hu : FOCUS_LABEL[plan.focus].en}. ${planCompleted.size}/20 ${isHu ? 'kész' : 'done'}.`
-                    : `${isHu ? 'A mentett dobások alapján javasolt fókusz' : 'Suggested focus from saved dart results'}: ${isHu ? FOCUS_LABEL[suggestedFocus].hu : FOCUS_LABEL[suggestedFocus].en}. ${isHu ? 'Heti öt edzés, saját tempóban.' : 'Five drills per week, at your own pace.'}`}</p>
+                    : `${records.length || profileFocus ? (isHu ? 'A mentett dobások és meccsek alapján javasolt fókusz' : 'Suggested focus from saved darts and matches') : (isHu ? 'Kezdő fókusz' : 'Starting focus')}: ${isHu ? FOCUS_LABEL[suggestedFocus].hu : FOCUS_LABEL[suggestedFocus].en}. ${isHu ? 'Heti öt edzés, saját tempóban.' : 'Five drills per week, at your own pace.'}`}</p>
                 </div>
-                {!plan && <button type="button" onClick={() => setPlan(createTrainingPlan(records))} className="h-11 px-5 shrink-0 rounded-xl bg-emerald-500 text-slate-950 text-xs font-black uppercase hover:bg-emerald-400">{isHu ? 'Terv indítása' : 'Start plan'}</button>}
+                {!plan && <button type="button" onClick={() => setPlan(createTrainingPlan(records, new Date(), crypto.randomUUID(), profileFocus))} className="h-11 px-5 shrink-0 rounded-xl bg-emerald-500 text-slate-950 text-xs font-black uppercase hover:bg-emerald-400">{isHu ? 'Terv indítása' : 'Start plan'}</button>}
               </div>
+              {plan && <div className="mt-5"><div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase text-slate-300"><span>{isHu ? 'Négyhetes haladás' : 'Four-week progress'}</span><span>{Math.round(planCompleted.size / 20 * 100)}%</span></div><div className="h-2.5 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-label={isHu ? 'Négyhetes edzésterv haladása' : 'Four-week training progress'} aria-valuenow={planCompleted.size} aria-valuemin={0} aria-valuemax={20}><div className="h-full rounded-full bg-emerald-400 transition-[width]" style={{ width: `${planCompleted.size / 20 * 100}%` }} /></div></div>}
+              {plan && revisedPlan && revisedPlan !== plan && <button type="button" onClick={() => setPlan(revisedPlan)} className="mt-4 min-h-11 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 text-xs font-black uppercase text-cyan-200 hover:bg-cyan-500/20">{isHu ? `Következő hetek áttervezése: ${FOCUS_LABEL[revisedPlan.focus].hu}` : `Adapt remaining weeks: ${FOCUS_LABEL[revisedPlan.focus].en}`}</button>}
               {plan && <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-6">
                 {Array.from({ length: 4 }, (_, week) => <div key={week} className="rounded-2xl border border-slate-700/70 bg-[#0b0d11] p-4">
-                  <h3 className="text-xs uppercase tracking-widest text-emerald-400 font-black mb-3">{week + 1}. {isHu ? 'hét' : 'week'}</h3>
+                  <h3 className="text-xs uppercase tracking-widest text-emerald-400 font-black mb-3">{week + 1}. {isHu ? 'hét' : 'week'} <span className="float-right text-slate-400">{plan.days.slice(week * 5, week * 5 + 5).filter((_, day) => planCompleted.has(week * 5 + day)).length}/5</span></h3>
                   <div className="space-y-2">{plan.days.slice(week * 5, week * 5 + 5).map((mode, day) => {
                     const index = week * 5 + day;
                     const done = planCompleted.has(index);

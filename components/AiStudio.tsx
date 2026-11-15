@@ -9,7 +9,7 @@ import { buildDartsDna, type DnaAim } from '../lib/dartsDna';
 import type { DatedDnaMatch } from '../lib/weeklyGoal';
 import { createLocalNarrative } from '../lib/localCoach';
 import { readMatchVisits } from '../lib/matchReplay';
-import { AiCoach } from './AiCoach';
+import { TrainingLab } from './TrainingLab';
 import { MatchTimeMachine, type ReplayMatch } from './MatchTimeMachine';
 import { AiPracticeLab } from './AiPracticeLab';
 import { AiInsights } from './AiInsights';
@@ -25,7 +25,7 @@ const words = {
   hu: {
     eyebrow: 'DARTISAN / AI STÚDIÓ', title: 'A játékod ujjlenyomata',
     subtitle: 'Valódi meccsek és célzott nyilak alapján. Minden szám mögött ott van a minta.',
-    dna: 'Darts DNS', planner: 'Heti terv', matches: 'meccs alapján',
+    dna: 'Darts DNS', planner: 'Négyhetes terv', matches: 'meccs alapján',
     low: 'Kezdődő minta', medium: 'Alakuló minta', high: 'Erős minta',
     average: '3 nyilas átlag', first9: 'Első 9 nyíl', checkout: 'Kiszálló', winRate: 'Győzelem',
     trend: 'Utolsó 5 vs. előző 5', consistency: 'Ingadozás',
@@ -57,7 +57,7 @@ const words = {
   en: {
     eyebrow: 'DARTISAN / AI STUDIO', title: 'Your darts fingerprint',
     subtitle: 'Built from real matches and aimed darts. Find the pattern behind the numbers.',
-    dna: 'Darts DNA', planner: 'Weekly plan', matches: 'recorded matches',
+    dna: 'Darts DNA', planner: 'Four-week plan', matches: 'recorded matches',
     low: 'Early signal', medium: 'Emerging pattern', high: 'Strong pattern',
     average: '3-dart average', first9: 'First nine', checkout: 'Checkout', winRate: 'Wins',
     trend: 'Last 5 vs previous 5', consistency: 'Variation',
@@ -228,7 +228,8 @@ export function AiStudio({ onBack, onStartDrill, lang, currentUser }: {
     setSpeaking(true);
   };
 
-  if (tab === 'planner') return <AiCoach lang={lang} onBack={() => setTab('dna')} onStartDrill={onStartDrill} />;
+  if (tab === 'planner') return <TrainingLab lang={lang} onBack={() => setTab('dna')}
+    profileFocus={dna.matches >= 3 ? dna.focus === 'doubles' ? 'doubles' : dna.focus === 'opening' || dna.focus === 'scoring' ? 'scoring' : 'balanced' : undefined} />;
 
   const profiles = { quickstarter: t.quickstarter, finisher: t.finisher, scorer: t.scorer, builder: t.builder };
   const focus = dna.focus === 'doubles' ? t.focusDoubles : dna.focus === 'opening' ? t.focusOpening : dna.focus === 'consistency' ? t.focusConsistency : t.focusScoring;

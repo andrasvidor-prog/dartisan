@@ -36,7 +36,7 @@ Frissítve: 2026. november 14. Az összegek **becslések egy használatra**, USD
 | 12 | Edzői csere a legszünetben | A lezárt leg pontjaiból és sokjaiból rövid javaslat | 0 $ helyben; élő AI később 0,0002–0,0005 $ / kérés | Helyi változat kész X01 meccsben |
 | 13 | Ellenfél-felderítő | Ismétlődő ellenfél meccsrekordja és naplózott köreinek mintája | 0 $; prózai elemzés később 0,0006–0,0010 $ | Helyi változat kész; új körnaplós meccsek gazdagítják |
 | 14 | Győzelmi recept | Mentett X01 győzelmek és vereségek mutatóinak összehasonlítása | 0 $; élő magyarázat később 0,0002–0,0005 $ | Helyi változat kész; mindkét eredményből kell minta |
-| 15 | Személyre szabott négyhetes terv | Mérhető feladat, terhelés és újratervezés | 0 $ algoritmussal vagy 0,0006–0,0010 $ / új terv |
+| 15 | Személyre szabott négyhetes terv | 20 mérhető edzés, meccs- vagy célzási adatból választott fókusz, későbbi hetek újratervezése | 0 $ helyben; élő AI később külön kérés | Kész az AI Stúdióban; eszközön tárolt terv |
 | 16 | Edzés közbeni adaptáció | A következő célpont az előző körök alapján változik | 0 $ |
 | 17 | Mentális nyomásszimulátor | Kevés nyíl, időkeret, virtuális ellenfél és visszajelzés | 0 $ |
 | 18 | Saját stílusú bot | A játékos korábbi pontszámaihoz hasonló ellenfél | 0 $; részletes eseménynapló kell |
