@@ -8,7 +8,7 @@ const BASE_WEEKS: TrainingMode[][] = [
   ['countup', 'double_ladder', 'bull30', 'switch30', 'checkout170'],
   ['pressure60', 'random_doubles', 'shanghai', 'treble100', 'ladder121'],
   ['baseball', 'halveit', 'bull30', 'adaptive30', 'checkout170'],
-  ['countup', 'random_doubles', 'treble100', 'pressure60', 'ladder121'],
+  ['countup', 'random_doubles', 'pressure_duel', 'pressure60', 'ladder121'],
 ];
 
 export function suggestedPlanFocus(records: PlanRecord[], fallback: PlanFocus = 'balanced'): PlanFocus {

@@ -1,6 +1,6 @@
 import { evaluateVisit, isValidDart, type Dart } from './x01.ts';
 
-export type TrainingMode = 'double_ladder' | 'random_doubles' | 'treble100' | 'switch30' | 'bull30' | 'countup' | 'shanghai' | 'halveit' | 'baseball' | 'checkout170' | 'pressure60' | 'ladder121' | 'adaptive30';
+export type TrainingMode = 'double_ladder' | 'random_doubles' | 'treble100' | 'switch30' | 'bull30' | 'countup' | 'shanghai' | 'halveit' | 'baseball' | 'checkout170' | 'pressure60' | 'ladder121' | 'adaptive30' | 'pressure_duel';
 
 export type TrainingSession = {
   mode: TrainingMode;
@@ -21,9 +21,10 @@ export type TrainingResult = {
   completed: boolean;
   detail: string;
   remainingSeconds: number | null;
+  opponentScore: number | null;
 };
 
-export const TRAINING_MODES: TrainingMode[] = ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30', 'adaptive30', 'countup', 'shanghai', 'halveit', 'baseball', 'checkout170', 'ladder121', 'pressure60'];
+export const TRAINING_MODES: TrainingMode[] = ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30', 'adaptive30', 'pressure_duel', 'countup', 'shanghai', 'halveit', 'baseball', 'checkout170', 'ladder121', 'pressure60'];
 
 const ADAPTIVE_TARGETS = ['S20', 'T20', 'T19', 'D20', 'D16', 'BULL'] as const;
 
@@ -49,6 +50,7 @@ export function trainingDartLimit(mode: TrainingMode): number {
   if (mode === 'treble100') return 100;
   if (mode === 'switch30' || mode === 'bull30' || mode === 'adaptive30') return 30;
   if (mode === 'countup') return 24;
+  if (mode === 'pressure_duel') return 9;
   if (mode === 'baseball') return 27;
   if (mode === 'checkout170') return 3;
   if (mode === 'ladder121') return 45;
@@ -57,7 +59,7 @@ export function trainingDartLimit(mode: TrainingMode): number {
 }
 
 export function trainingTimeLimit(mode: TrainingMode): number | null {
-  return mode === 'random_doubles' ? 180 : mode === 'pressure60' ? 60 : null;
+  return mode === 'random_doubles' ? 180 : mode === 'pressure60' ? 60 : mode === 'pressure_duel' ? 75 : null;
 }
 
 export function createTrainingSession(mode: TrainingMode, random = Math.random, plan?: { id: string; day: number }): TrainingSession {
@@ -97,6 +99,7 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
   let failed = false;
   let ladderRemaining = 121;
   let ladderStage = 0;
+  let opponentScore: number | null = null;
 
   if (mode === 'double_ladder' || mode === 'random_doubles') {
     for (const dart of darts) {
@@ -154,6 +157,12 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
     }
     completed = darts.length >= 24;
     detail = `${Math.ceil(darts.length / 3)}/8 kör`;
+  } else if (mode === 'pressure_duel') {
+    score = darts.reduce((sum, dart) => sum + dart.val * dart.mult, 0);
+    hits = darts.filter(dart => dart.val > 0).length;
+    opponentScore = [0, 60, 130, 210][Math.min(3, Math.floor(darts.length / 3))];
+    completed = score > 210;
+    detail = `${score} / 210 pont • ${Math.ceil(darts.length / 3)}/3 kör`;
   } else if (mode === 'baseball') {
     for (let round = 0; round < 9; round++) {
       const matching = darts.slice(round * 3, round * 3 + 3).filter(d => d.val === round + 1);
@@ -244,6 +253,7 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
   else if (mode === 'bull30') target = 'BULL';
   else if (mode === 'adaptive30') target = adaptiveTargetAt(darts).target;
   else if (mode === 'countup') target = 'Bármely szektor';
+  else if (mode === 'pressure_duel') target = `${Math.max(0, 211 - score)} pont`;
   else if (mode === 'baseball') target = `${Math.min(9, Math.floor(darts.length / 3) + 1)}`;
   else if (mode === 'checkout170') target = `${170 - score}`;
   else if (mode === 'ladder121') target = `${Math.min(125, 121 + ladderStage)}`;
@@ -254,5 +264,5 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
   if (completed) target = 'Kész';
 
   return { score, hits, target, progress: darts.length, total: limit,
-    finished: completed || failed || bust || darts.length >= limit || remainingSeconds === 0, completed, detail, remainingSeconds };
+    finished: completed || failed || bust || darts.length >= limit || remainingSeconds === 0, completed, detail, remainingSeconds, opponentScore };
 }

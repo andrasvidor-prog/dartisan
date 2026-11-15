@@ -39,6 +39,18 @@ test('adaptive practice changes target from completed rounds and undo restores t
   assert.equal(evaluateTraining(sessionWith('adaptive30', Array.from({ length: 30 }, () => hit(0)))).finished, true);
 });
 
+test('pressure duel advances the rival after each visit and can end in a win, loss or timeout', () => {
+  const start = '2026-11-06T12:00:00.000Z';
+  const afterOneVisit = { ...sessionWith('pressure_duel', [hit(20), hit(20), hit(20)]), startedAt: start };
+  const first = evaluateTraining(afterOneVisit, new Date('2026-11-06T12:00:10.000Z'));
+  assert.deepEqual([first.score, first.opponentScore, first.target, first.finished], [60, 60, '151 pont', false]);
+  assert.equal(evaluateTraining({ ...afterOneVisit, darts: [...afterOneVisit.darts, hit(20, 3), hit(20, 3), hit(20, 3)] }, new Date('2026-11-06T12:00:20.000Z')).completed, true);
+  const loss = evaluateTraining({ ...afterOneVisit, darts: Array.from({ length: 9 }, () => hit(0)) }, new Date('2026-11-06T12:00:30.000Z'));
+  assert.deepEqual([loss.opponentScore, loss.finished, loss.completed], [210, true, false]);
+  const timeout = evaluateTraining(afterOneVisit, new Date('2026-11-06T12:01:15.000Z'));
+  assert.deepEqual([timeout.remainingSeconds, timeout.finished, timeout.completed], [0, true, false]);
+});
+
 test('Count-Up and Shanghai score full darts and target sectors', () => {
   const countup = evaluateTraining(sessionWith('countup', Array.from({ length: 24 }, () => hit(20, 3))));
   assert.equal(countup.score, 1440);
