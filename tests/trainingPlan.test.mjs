@@ -8,6 +8,8 @@ test('a four-week plan has twenty frozen drills and can be restored', () => {
   assert.equal(plan.days.length, 20);
   assert.equal(isTrainingPlan(JSON.parse(JSON.stringify(plan))), true);
   assert.equal(isTrainingPlan({ ...plan, days: [] }), false);
+  assert.equal(plan.days.includes('adaptive30'), true);
+  assert.equal(isTrainingPlan({ ...plan, days: plan.days.map(mode => mode === 'adaptive30' ? 'switch30' : mode) }), true);
 });
 
 test('the plan focuses on the weakest measured skill', () => {

@@ -1,6 +1,6 @@
 import { evaluateVisit, isValidDart, type Dart } from './x01.ts';
 
-export type TrainingMode = 'double_ladder' | 'random_doubles' | 'treble100' | 'switch30' | 'bull30' | 'countup' | 'shanghai' | 'halveit' | 'baseball' | 'checkout170' | 'pressure60' | 'ladder121';
+export type TrainingMode = 'double_ladder' | 'random_doubles' | 'treble100' | 'switch30' | 'bull30' | 'countup' | 'shanghai' | 'halveit' | 'baseball' | 'checkout170' | 'pressure60' | 'ladder121' | 'adaptive30';
 
 export type TrainingSession = {
   mode: TrainingMode;
@@ -23,12 +23,31 @@ export type TrainingResult = {
   remainingSeconds: number | null;
 };
 
-export const TRAINING_MODES: TrainingMode[] = ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30', 'countup', 'shanghai', 'halveit', 'baseball', 'checkout170', 'ladder121', 'pressure60'];
+export const TRAINING_MODES: TrainingMode[] = ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30', 'adaptive30', 'countup', 'shanghai', 'halveit', 'baseball', 'checkout170', 'ladder121', 'pressure60'];
+
+const ADAPTIVE_TARGETS = ['S20', 'T20', 'T19', 'D20', 'D16', 'BULL'] as const;
+
+function adaptiveHit(dart: Dart, target: string): boolean {
+  if (target === 'BULL') return dart.val === 25;
+  return dart.val === Number(target.slice(1)) && dart.mult === ({ S: 1, D: 2, T: 3 } as const)[target[0] as 'S' | 'D' | 'T'];
+}
+
+/** Recompute from recorded throws so undo and restored sessions choose the same target. */
+export function adaptiveTargetAt(darts: Dart[]): { target: string; level: number; round: number } {
+  let level = 0;
+  const completeRounds = Math.min(10, Math.floor(darts.length / 3));
+  for (let round = 0; round < completeRounds; round++) {
+    const hits = darts.slice(round * 3, round * 3 + 3).filter(dart => adaptiveHit(dart, ADAPTIVE_TARGETS[level])).length;
+    if (hits >= 2) level = Math.min(ADAPTIVE_TARGETS.length - 1, level + 1);
+    else if (hits === 0) level = Math.max(0, level - 1);
+  }
+  return { target: ADAPTIVE_TARGETS[level], level, round: Math.min(10, completeRounds + 1) };
+}
 
 export function trainingDartLimit(mode: TrainingMode): number {
   if (mode === 'double_ladder' || mode === 'random_doubles') return 60;
   if (mode === 'treble100') return 100;
-  if (mode === 'switch30' || mode === 'bull30') return 30;
+  if (mode === 'switch30' || mode === 'bull30' || mode === 'adaptive30') return 30;
   if (mode === 'countup') return 24;
   if (mode === 'baseball') return 27;
   if (mode === 'checkout170') return 3;
@@ -107,6 +126,18 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
     }
     completed = darts.length >= 30;
     detail = `${hits}/30 célzott tripla`;
+  } else if (mode === 'adaptive30') {
+    for (let round = 0; round < 10; round++) {
+      const target = adaptiveTargetAt(darts.slice(0, round * 3)).target;
+      for (const dart of darts.slice(round * 3, round * 3 + 3)) {
+        if (adaptiveHit(dart, target)) {
+          hits++;
+          score += target === 'BULL' ? (dart.mult === 2 ? 2 : 1) : Number(target.slice(1)) * dart.mult;
+        }
+      }
+    }
+    completed = darts.length >= 30;
+    detail = `${hits}/30 célzott találat • ${Math.min(10, Math.floor(darts.length / 3) + 1)}. kör`;
   } else if (mode === 'bull30') {
     for (const dart of darts) {
       if (dart.val === 25) {
@@ -211,6 +242,7 @@ export function evaluateTraining(session: TrainingSession, now = new Date()): Tr
   else if (mode === 'treble100') target = 'T20';
   else if (mode === 'switch30') target = `T${[20, 19, 18][darts.length % 3]}`;
   else if (mode === 'bull30') target = 'BULL';
+  else if (mode === 'adaptive30') target = adaptiveTargetAt(darts).target;
   else if (mode === 'countup') target = 'Bármely szektor';
   else if (mode === 'baseball') target = `${Math.min(9, Math.floor(darts.length / 3) + 1)}`;
   else if (mode === 'checkout170') target = `${170 - score}`;

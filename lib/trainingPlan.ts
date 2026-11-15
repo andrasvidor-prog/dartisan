@@ -1,4 +1,4 @@
-import type { TrainingMode } from './training.ts';
+import { TRAINING_MODES, type TrainingMode } from './training.ts';
 
 export type PlanFocus = 'balanced' | 'doubles' | 'scoring' | 'bull';
 export type PlanRecord = { mode: TrainingMode; hits: number; darts: number; planId?: string; planDay?: number };
@@ -7,7 +7,7 @@ export type TrainingPlan = { id: string; createdAt: string; focus: PlanFocus; da
 const BASE_WEEKS: TrainingMode[][] = [
   ['countup', 'double_ladder', 'bull30', 'switch30', 'checkout170'],
   ['pressure60', 'random_doubles', 'shanghai', 'treble100', 'ladder121'],
-  ['baseball', 'halveit', 'bull30', 'switch30', 'checkout170'],
+  ['baseball', 'halveit', 'bull30', 'adaptive30', 'checkout170'],
   ['countup', 'random_doubles', 'treble100', 'pressure60', 'ladder121'],
 ];
 
@@ -61,11 +61,10 @@ export function replanTrainingPlan(plan: TrainingPlan, records: PlanRecord[]): T
 export function isTrainingPlan(value: unknown): value is TrainingPlan {
   if (!value || typeof value !== 'object') return false;
   const plan = value as Partial<TrainingPlan>;
-  const modes = BASE_WEEKS.flat();
   return typeof plan.id === 'string' && plan.id.length > 0 &&
     typeof plan.createdAt === 'string' && !Number.isNaN(Date.parse(plan.createdAt)) &&
     ['balanced', 'doubles', 'scoring', 'bull'].includes(plan.focus ?? '') &&
-    Array.isArray(plan.days) && plan.days.length === 20 && plan.days.every(mode => modes.includes(mode));
+    Array.isArray(plan.days) && plan.days.length === 20 && plan.days.every(mode => TRAINING_MODES.includes(mode));
 }
 
 export function completedPlanDays(plan: TrainingPlan, records: PlanRecord[]): Set<number> {

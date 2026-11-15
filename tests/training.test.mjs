@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTrainingSession, evaluateTraining, isTrainingSession } from '../lib/training.ts';
+import { adaptiveTargetAt, createTrainingSession, evaluateTraining, isTrainingSession } from '../lib/training.ts';
 
 const hit = (val, mult = 1) => ({ val, mult });
 const sessionWith = (mode, darts) => ({ ...createTrainingSession(mode, () => 0), darts });
@@ -25,6 +25,18 @@ test('treble and bull drills count only intended hits', () => {
   assert.deepEqual([treble.hits, treble.score], [1, 137]);
   const bull = evaluateTraining(sessionWith('bull30', [hit(25), hit(25, 2), hit(20)]));
   assert.deepEqual([bull.hits, bull.score], [2, 3]);
+});
+
+test('adaptive practice changes target from completed rounds and undo restores the earlier target', () => {
+  const firstRound = [hit(20), hit(20), hit(0)];
+  assert.equal(evaluateTraining(sessionWith('adaptive30', firstRound)).target, 'T20');
+  const secondRound = [...firstRound, hit(19, 3), hit(0), hit(20)];
+  const result = evaluateTraining(sessionWith('adaptive30', secondRound));
+  assert.equal(result.target, 'S20');
+  assert.deepEqual([result.hits, result.score, result.progress], [2, 40, 6]);
+  assert.equal(adaptiveTargetAt(secondRound.slice(0, -1)).target, 'T20');
+  assert.equal(isTrainingSession(sessionWith('adaptive30', secondRound)), true);
+  assert.equal(evaluateTraining(sessionWith('adaptive30', Array.from({ length: 30 }, () => hit(0)))).finished, true);
 });
 
 test('Count-Up and Shanghai score full darts and target sectors', () => {

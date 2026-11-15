@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeftIcon, ArrowPathIcon, ArrowUturnLeftIcon, ChartBarIcon, PlayIcon } from '@heroicons/react/24/outline';
 import type { Language } from '@/app/page';
 import type { Dart } from '@/lib/x01';
-import { createTrainingSession, evaluateTraining, isTrainingSession, TRAINING_MODES, trainingTimeLimit, type TrainingMode, type TrainingSession } from '@/lib/training';
+import { adaptiveTargetAt, createTrainingSession, evaluateTraining, isTrainingSession, TRAINING_MODES, trainingTimeLimit, type TrainingMode, type TrainingSession } from '@/lib/training';
 import { completedPlanDays, createTrainingPlan, isTrainingPlan, replanTrainingPlan, suggestedPlanFocus, type PlanFocus, type TrainingPlan } from '@/lib/trainingPlan';
 
 type TrainingRecord = { id: string; mode: TrainingMode; score: number; hits: number; darts: number; completed: boolean; date: string; planId?: string; planDay?: number };
@@ -21,6 +21,7 @@ const COPY: Record<TrainingMode, { hu: string; en: string; huRule: string; enRul
   random_doubles: { hu: 'Véletlen duplák időre', en: 'Timed random doubles', huRule: '20 véletlen dupla egymás után, 3 perc és legfeljebb 60 nyíl alatt.', enRule: 'Hit 20 random doubles in order within 3 minutes and 60 darts.', accent: 'cyan' },
   treble100: { hu: '100 nyíl a T20-ra', en: '100 darts at T20', huRule: 'Dobj 100 nyilat. Minden T20 találat számít; az összpontot is látod.', enRule: 'Throw 100 darts. Count T20 hits and total points.', accent: 'rose' },
   switch30: { hu: 'Tripla váltás', en: 'Treble switch', huRule: '30 nyíl: T20, T19, T18 ismétlődő sorrendben.', enRule: '30 darts: T20, T19 and T18 in repeating order.', accent: 'amber' },
+  adaptive30: { hu: 'Alkalmazkodó célzás', en: 'Adaptive targeting', huRule: '10 kör, körönként 3 nyíl. Két találattal nehezebb cél jön; nulla találattal egy szinttel könnyebb. A következő cél mindig az előző körödből számolódik.', enRule: 'Ten rounds of three darts. Two hits raise the difficulty; no hits lower it. Your next target follows your actual results.', accent: 'cyan' },
   bull30: { hu: 'Bull rutin', en: 'Bull routine', huRule: '30 nyíl a bullra. Külső bull 1, belső bull 2 pont.', enRule: '30 darts at the bull. Outer scores 1, inner scores 2.', accent: 'purple' },
   countup: { hu: 'Count-Up', en: 'Count-Up', huRule: '8 kör, összesen 24 nyíl. Gyűjts minél több pontot.', enRule: '8 rounds, 24 darts total. Score as many points as you can.', accent: 'emerald' },
   shanghai: { hu: 'Shanghai', en: 'Shanghai', huRule: '1-től 7-ig körönként 3 nyíl az aktuális szektorra. Sima + dupla + tripla egy körben: azonnali Shanghai.', enRule: 'Three darts per round on sectors 1 to 7. Single, double and treble in one round wins a Shanghai.', accent: 'rose' },
@@ -149,12 +150,15 @@ export function TrainingLab({ lang, onBack, profileFocus }: { lang: Language; on
   const currentCopy = session ? COPY[session.mode] : null;
   const currentAccent = currentCopy ? ACCENT[currentCopy.accent] : null;
   const modeRecords = session ? records.filter(r => r.mode === session.mode) : [];
-  const bestByHits = session && ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30'].includes(session.mode);
+  const bestByHits = session && ['double_ladder', 'random_doubles', 'treble100', 'switch30', 'bull30', 'adaptive30'].includes(session.mode);
   const modeCount = TRAINING_MODES.length;
   const personalBest = modeRecords.length ? Math.max(...modeRecords.map(r => bestByHits ? r.hits : r.score)) : null;
   const planCompleted = plan ? completedPlanDays(plan, records) : new Set<number>();
   const suggestedFocus = suggestedPlanFocus(records, profileFocus);
   const revisedPlan = plan ? replanTrainingPlan(plan, records) : null;
+  const adaptiveState = session?.mode === 'adaptive30' ? adaptiveTargetAt(session.darts) : null;
+  const previousAdaptiveState = session?.mode === 'adaptive30' && session.darts.length >= 3
+    ? adaptiveTargetAt(session.darts.slice(0, Math.floor((session.darts.length - 1) / 3) * 3)) : null;
 
   return (
     <div className="min-h-full w-full bg-[#0b0d11] text-slate-200 px-4 sm:px-7 lg:px-10 pt-[calc(1rem+var(--app-safe-top))] pb-16">
@@ -247,6 +251,10 @@ export function TrainingLab({ lang, onBack, profileFocus }: { lang: Language; on
                 <div className="mt-5 flex justify-between text-xs font-black text-slate-400"><span>{result.detail}</span><span>{result.progress}/{result.total} {isHu ? 'nyíl' : 'darts'}</span></div>
                 {result.remainingSeconds !== null && <p role="timer" className={`text-2xl font-black font-mono mt-4 ${result.remainingSeconds <= 10 ? 'text-rose-400' : 'text-cyan-300'}`}>{Math.floor(result.remainingSeconds / 60)}:{String(result.remainingSeconds % 60).padStart(2, '0')} <span className="text-xs uppercase text-slate-400">{isHu ? 'hátralévő idő' : 'remaining'}</span></p>}
                 <div className="mt-2 h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-cyan-400 transition-all" style={{ width: `${result.finished ? 100 : Math.min(100, 100 * result.progress / result.total)}%` }} /></div>
+                {adaptiveState && <div className="mt-5" aria-label={isHu ? 'Adaptív célszintek' : 'Adaptive target levels'}>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">{['S20', 'T20', 'T19', 'D20', 'D16', 'BULL'].map((target, index) => <span key={target} className={`rounded-lg border px-1 py-2 text-center font-mono text-xs font-black ${index === adaptiveState.level && !result.finished ? 'border-cyan-400 bg-cyan-400/15 text-cyan-200' : 'border-slate-800 bg-[#0b0d11] text-slate-500'}`}>{target}</span>)}</div>
+                  {session.darts.length >= 3 && session.darts.length % 3 === 0 && previousAdaptiveState && !result.finished && <p role="status" className="mt-2 text-xs font-semibold text-cyan-200">{adaptiveState.level > previousAdaptiveState.level ? (isHu ? 'Két vagy több találat: nehezebb cél következik.' : 'Two or more hits: the next target is harder.') : adaptiveState.level < previousAdaptiveState.level ? (isHu ? 'Találat nélkül: könnyebb cél következik.' : 'No hits: the next target is easier.') : (isHu ? 'A cél szintje most nem változott.' : 'The target level stays the same.')}</p>}
+                </div>}
                 {personalBest !== null && <p className="text-xs text-amber-400 font-bold mt-4">{isHu ? 'Személyes rekord ezen az eszközön' : 'Personal best on this device'}: {personalBest} {session.mode === 'ladder121' ? (isHu ? 'kiszálló' : 'checkouts') : bestByHits ? (isHu ? 'találat' : 'hits') : (isHu ? 'pont' : 'pts')}</p>}
                 {result.finished && <div role="status" className="mt-5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-300 font-black">{isHu ? 'Edzés befejezve!' : 'Drill complete!'} {result.detail}</div>}
               </div>
